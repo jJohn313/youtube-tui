@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# Smart MPV instance manager: prevents duplicate instances of the same video,
+# cleans YouTube URLs to eliminate bloated playlist extraction delays,
+# and delegates to /usr/bin/mpv
+
+REAL_MPV="/usr/bin/mpv"
+
+VIDEO_ID=""
+TARGET_URL=""
+ARGS=()
+
+for arg in "$@"; do
+    if [[ "$arg" =~ (https?://|www\.) ]]; then
+        if [[ "$arg" =~ (v=|youtu\.be/|shorts/)([a-zA-Z0-9_-]{11}) ]]; then
+            vid="${BASH_REMATCH[2]}"
+            # Preserve timestamp if present in URL
+            time_param=""
+            t_regex='[?&]t=([0-9a-zA-Z]+)'
+            if [[ "$arg" =~ $t_regex ]]; then
+                time_param="&t=${BASH_REMATCH[1]}"
+            fi
+            clean_url="https://www.youtube.com/watch?v=${vid}${time_param}"
+            ARGS+=("$clean_url")
+            [ -z "$TARGET_URL" ] && TARGET_URL="$clean_url"
+            [ -z "$VIDEO_ID" ] && VIDEO_ID="$vid"
+        else
+            ARGS+=("$arg")
+            [ -z "$TARGET_URL" ] && TARGET_URL="$arg"
+        fi
+    elif [[ -f "$arg" ]]; then
+        fpath=$(realpath "$arg" 2>/dev/null || echo "$arg")
+        [ -z "$TARGET_URL" ] && TARGET_URL="$fpath"
+        ARGS+=("$arg")
+    else
+        ARGS+=("$arg")
+    fi
+done
+
+# If a video or file was specified, check if already playing in a running instance
+if [[ -n "$VIDEO_ID" || -n "$TARGET_URL" ]]; then
+    for pid in $(pgrep -f "^/usr/bin/mpv"); do
+        [ "$pid" -eq $$ ] && continue
+
+        cmdline=$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null)
+        MATCHED=0
+
+        if [[ -n "$VIDEO_ID" && "$cmdline" =~ $VIDEO_ID ]]; then
+            MATCHED=1
+        elif [[ -n "$TARGET_URL" && "$cmdline" =~ "$TARGET_URL" ]]; then
+            MATCHED=1
+        fi
+
+        if [ "$MATCHED" -eq 1 ]; then
+            # Bring existing window to front in Hyprland
+            if command -v hyprctl >/dev/null 2>&1; then
+                hyprctl dispatch focuswindow "class:mpv" >/dev/null 2>&1
+            fi
+            command -v notify-send >/dev/null 2>&1 && notify-send -a mpv "MPV" "Video is already running" -t 1500 >/dev/null 2>&1
+            exit 0
+        fi
+    done
+fi
+
+exec "$REAL_MPV" "${ARGS[@]}"

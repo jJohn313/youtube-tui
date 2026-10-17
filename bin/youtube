@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Wrapper for ytfzf with thumbnail preview and highest quality defaults
+
+export YTFZF_PREF="bestvideo[vcodec^=vp9]+bestaudio/bestvideo+bestaudio/best"
+
+if [ $# -eq 0 ]; then
+    exec ytfzf --show-thumbnails
+else
+    exec ytfzf --show-thumbnails "$@"
+fi
