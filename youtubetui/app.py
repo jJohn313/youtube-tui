@@ -40,10 +40,18 @@ class YouTubeTUIApp(App):
         Binding("p", "open_playlist", "Playlist", show=True),
         Binding("m", "play_audio", "Audio MPV", show=True),
         Binding("y", "yank_url", "Yank URL", show=True),
-        Binding("a", "toggle_account_sync", "Account Sync", show=True),
+        Binding("w", "sync_webflow", "Sync Webflow", show=True),
+        Binding("a", "sync_zen", "Sync Zen", show=True),
+        Binding("1", "cat_home", "Home", show=False),
+        Binding("2", "cat_subs", "Subscriptions", show=False),
+        Binding("3", "cat_history", "History", show=False),
+        Binding("4", "cat_trending", "Trending", show=False),
+        Binding("5", "cat_tech", "Tech", show=False),
+        Binding("6", "cat_music", "Music", show=False),
+        Binding("7", "cat_gaming", "Gaming", show=False),
+        Binding("tab", "cycle_cat_next", "Next Cat", show=False),
+        Binding("shift+tab", "cycle_cat_prev", "Prev Cat", show=False),
         Binding("r", "refresh_feed", "Refresh", show=True),
-        Binding("h", "focus_nav", "Sidebar", show=False),
-        Binding("l", "focus_feed", "Feed", show=False),
         Binding("question_mark", "show_help", "Help", show=True),
     ]
 
@@ -54,11 +62,11 @@ class YouTubeTUIApp(App):
         self.current_filter = "all"
         self.previous_results: List[Dict[str, Any]] = []
         self.previous_title: str = ""
+        self.cat_order = ["home", "subs", "history", "trending", "tech", "music", "gaming"]
 
     def compose(self) -> ComposeResult:
         yield HeaderBar(id="header-bar")
         with Horizontal(id="main-columns"):
-            yield NavigationSidebar(id="nav-sidebar")
             yield FeedPane(id="feed-pane")
             yield PreviewPane(id="preview-pane")
         yield StatusBar(id="status-bar")
@@ -170,16 +178,62 @@ class YouTubeTUIApp(App):
         else:
             self.run_worker(self.load_feed("trending", "Trending Feed"))
 
-    def action_toggle_account_sync(self) -> None:
-        """Toggles / triggers browser account synchronization."""
+    def action_sync_webflow(self) -> None:
+        """Syncs YouTube login session from Webflow custom web engine."""
+        self.run_worker(self.sync_account_from_browser("webflow"), exclusive=True)
+
+    def action_sync_zen(self) -> None:
+        """Syncs YouTube login session from Zen browser."""
         self.run_worker(self.sync_account_from_browser("zen"), exclusive=True)
 
-    async def sync_account_from_browser(self, browser: str = "zen") -> None:
-        """Syncs YouTube login session from browser."""
+    def action_cat_home(self) -> None:
+        self.query_one("#feed-pane", FeedPane).set_active_category("home")
+        self.run_worker(self.load_home_feed(), exclusive=True)
+
+    def action_cat_subs(self) -> None:
+        self.query_one("#feed-pane", FeedPane).set_active_category("subs")
+        self.run_worker(self.load_subscriptions_feed(), exclusive=True)
+
+    def action_cat_history(self) -> None:
+        self.query_one("#feed-pane", FeedPane).set_active_category("history")
+        self.run_worker(self.load_history_feed(), exclusive=True)
+
+    def action_cat_trending(self) -> None:
+        self.query_one("#feed-pane", FeedPane).set_active_category("trending")
+        self.run_worker(self.load_feed("trending", "Trending"), exclusive=True)
+
+    def action_cat_tech(self) -> None:
+        self.query_one("#feed-pane", FeedPane).set_active_category("tech")
+        self.run_worker(self.load_feed("tech", "Tech & Linux"), exclusive=True)
+
+    def action_cat_music(self) -> None:
+        self.query_one("#feed-pane", FeedPane).set_active_category("music")
+        self.run_worker(self.load_feed("music", "Music"), exclusive=True)
+
+    def action_cat_gaming(self) -> None:
+        self.query_one("#feed-pane", FeedPane).set_active_category("gaming")
+        self.run_worker(self.load_feed("gaming", "Gaming"), exclusive=True)
+
+    def action_cycle_cat_next(self) -> None:
+        feed_pane = self.query_one("#feed-pane", FeedPane)
+        cur = feed_pane.active_category
+        idx = (self.cat_order.index(cur) + 1) % len(self.cat_order) if cur in self.cat_order else 0
+        cat = self.cat_order[idx]
+        getattr(self, f"action_cat_{cat}")()
+
+    def action_cycle_cat_prev(self) -> None:
+        feed_pane = self.query_one("#feed-pane", FeedPane)
+        cur = feed_pane.active_category
+        idx = (self.cat_order.index(cur) - 1) % len(self.cat_order) if cur in self.cat_order else 0
+        cat = self.cat_order[idx]
+        getattr(self, f"action_cat_{cat}")()
+
+    async def sync_account_from_browser(self, browser: str = "auto") -> None:
+        """Syncs YouTube login session from browser (Webflow, Zen, or Firefox)."""
         status_bar = self.query_one("#status-bar", StatusBar)
         header_bar = self.query_one("#header-bar", HeaderBar)
         
-        status_bar.set_message(f"Connecting YouTube account from {browser} browser...")
+        status_bar.set_message(f"Connecting YouTube account from {browser.title()}...")
         loop = asyncio.get_running_loop()
         ok, msg = await loop.run_in_executor(None, sync_from_browser, browser)
         
@@ -190,7 +244,7 @@ class YouTubeTUIApp(App):
             await self.load_home_feed()
 
     def action_show_help(self) -> None:
-        msg = "[/] Search  [Enter] Play/Open  [a] Sync Account  [c] Channel  [p] Playlist  [m] Audio  [y] Yank  [r] Refresh  [q] Quit"
+        msg = "[1-7] Tabs  [Tab] Cycle  [/] Search  [Enter] Play  [w] Sync Webflow  [a] Sync Zen  [c] Channel  [p] Playlist  [y] Yank  [q] Quit"
         self.query_one("#status-bar", StatusBar).set_message(msg)
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
@@ -243,45 +297,6 @@ class YouTubeTUIApp(App):
                 # Open playlist videos
                 pid = item.get("id")
                 await self.load_playlist(pid, item.get("title", "Playlist"))
-
-        elif event.list_view.id == "nav-list" and isinstance(event.item, NavItem):
-            item_id = event.item.item_id
-            if item_id == "feed_home":
-                await self.load_home_feed()
-            elif item_id == "feed_subs":
-                await self.load_subscriptions_feed()
-            elif item_id == "feed_history":
-                await self.load_history_feed()
-            elif item_id == "explore_all":
-                self.current_filter = "all"
-                if self.current_query:
-                    await self.perform_search(self.current_query)
-            elif item_id == "explore_videos":
-                self.current_filter = "videos"
-                if self.current_query:
-                    await self.perform_search(self.current_query)
-            elif item_id == "explore_channels":
-                self.current_filter = "channels"
-                if self.current_query:
-                    await self.perform_search(self.current_query)
-            elif item_id == "explore_playlists":
-                self.current_filter = "playlists"
-                if self.current_query:
-                    await self.perform_search(self.current_query)
-            elif item_id == "action_sync_zen":
-                await self.sync_account_from_browser("zen")
-            elif item_id == "action_sync_firefox":
-                await self.sync_account_from_browser("firefox")
-            elif item_id == "action_sign_out":
-                clear_session()
-                self.query_one("#header-bar", HeaderBar).update_account_status()
-                self.query_one("#status-bar", StatusBar).set_message("Signed out. Switched to Guest mode.")
-                await self.load_feed("trending", "Trending Feed")
-            elif item_id.startswith("feed_"):
-                cat = item_id.replace("feed_", "")
-                await self.load_feed(cat, event.item.raw_label.strip())
-            
-            self.query_one("#feed-list-view", ListView).focus()
 
     async def perform_search(self, query: str) -> None:
         """Executes YouTube Innertube search across videos, channels, and playlists."""

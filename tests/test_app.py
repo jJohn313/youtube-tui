@@ -19,9 +19,8 @@ from youtubetui.ui.statusbar import StatusBar
 async def test_app_startup_and_curated_feed():
     app = YouTubeTUIApp()
     async with app.run_test() as pilot:
-        # Check initial widgets mounted
+        # Check initial widgets mounted (2-column layout: feed + preview)
         assert app.query_one("#header-bar") is not None
-        assert app.query_one("#nav-sidebar") is not None
         feed_pane = app.query_one("#feed-pane", FeedPane)
         preview_pane = app.query_one("#preview-pane", PreviewPane)
         status_bar = app.query_one("#status-bar", StatusBar)
@@ -68,6 +67,11 @@ async def test_app_search_and_navigation():
         await pilot.exit(None)
 
 async def test_auth_and_subscriptions():
+    from youtubetui.auth import sync_from_browser
+    ok, msg = sync_from_browser("webflow")
+    assert ok is True
+    assert "Webflow" in msg
+
     app = YouTubeTUIApp()
     async with app.run_test() as pilot:
         feed_pane = app.query_one("#feed-pane", FeedPane)
@@ -88,6 +92,4 @@ if __name__ == "__main__":
     asyncio.run(test_app_startup_and_curated_feed())
     asyncio.run(test_app_search_and_navigation())
     asyncio.run(test_auth_and_subscriptions())
-    print("✔ All headless integration tests passed!")
-    asyncio.run(test_app_search_and_navigation())
     print("✔ All headless integration tests passed!")

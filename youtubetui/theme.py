@@ -108,45 +108,6 @@ Screen {{
     background: {BG0};
 }}
 
-#nav-sidebar {{
-    width: 26;
-    height: 100%;
-    background: {BG1};
-    border-right: solid {BG3};
-    padding: 0 0;
-}}
-
-.nav-section-title {{
-    color: {ACC0};
-    text-style: bold;
-    padding: 1 1 0 1;
-    background: {BG1};
-}}
-
-#nav-list {{
-    background: {BG1};
-    border: none;
-    padding: 0;
-}}
-
-#nav-list > ListItem {{
-    padding: 0 1;
-    color: {FG1};
-    background: {BG1};
-    height: 1;
-}}
-
-#nav-list > ListItem:hover {{
-    background: {BG2};
-    color: {ACC0};
-}}
-
-#nav-list > ListItem.-selected {{
-    background: {ACC0};
-    color: {BG0};
-    text-style: bold;
-}}
-
 #feed-container {{
     width: 1fr;
     height: 100%;
@@ -183,14 +144,19 @@ Screen {{
     color: {PEACH};
 }}
 
+#feed-list > ListItem.-highlight,
+#feed-list > ListItem:focus,
 #feed-list > ListItem.-selected {{
-    background: {ACC0};
-    color: {BG0};
-    text-style: bold;
+    background: {BG2};
+    border-left: wide {ACC0};
+    border-top: solid {BG3};
+    border-bottom: solid {BG3};
 }}
 
+#feed-list > ListItem.-highlight .dim-text,
+#feed-list > ListItem:focus .dim-text,
 #feed-list > ListItem.-selected .dim-text {{
-    color: {BG2};
+    color: {ACC0};
 }}
 
 #preview-container {{
