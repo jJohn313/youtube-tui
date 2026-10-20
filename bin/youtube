@@ -1,10 +1,21 @@
 #!/usr/bin/env bash
-# Wrapper for ytfzf with thumbnail preview and highest quality defaults
+# YouTube TUI: Terminal YouTube client reproducing YouTube web with Yazi styling,
+# multi-type search (videos, channels, playlists), Chafa true-color thumbnails,
+# and smart deduplicating MPV streaming.
 
-export YTFZF_PREF="bestvideo[vcodec^=vp9]+bestaudio/bestvideo+bestaudio/best"
+set -euo pipefail
 
-if [ $# -eq 0 ]; then
-    exec ytfzf --show-thumbnails
-else
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+# Ensure youtubetui package is in PYTHONPATH
+export PYTHONPATH="${REPO_DIR}:${PYTHONPATH:-}"
+
+# Legacy fallback if explicitly requested
+if [[ "${1:-}" == "--legacy" ]]; then
+    shift
+    export YTFZF_PREF="bestvideo[vcodec^=vp9]+bestaudio/bestvideo+bestaudio/best"
     exec ytfzf --show-thumbnails "$@"
 fi
+
+exec python3 -m youtubetui.app "$@"

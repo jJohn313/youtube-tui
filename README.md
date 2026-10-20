@@ -1,56 +1,66 @@
-# 📺 YouTube in Terminal (youtube-tui) `[WIP]`
+# 📺 YouTube TUI (youtube-tui)
 
-> ⚠️ **Status: Work In Progress (WIP)**  
-> This tool is currently under active development and being consolidated into a standalone package. Core playback and search work, but additional features (playlist manager, history synchronization, and unified config) are in progress.
-
-A terminal-first, lightweight YouTube search and streaming client for Linux. Built around `ytfzf`, `mpv`, and `yt-dlp` to deliver instantaneous video search with inline Kitty/Chafa thumbnail art and hardware-accelerated, ad-free streaming with zero browser overhead.
+A terminal-first, lightweight YouTube client for Linux recreating the YouTube web interface inside modern terminals like Kitty, Foot, and Ghostty with **Yazi-inspired** aesthetics and hardware-accelerated MPV streaming.
 
 ---
 
 ## ⚡ Features
 
-- **Interactive Terminal Search**: Run `youtube "<query>"` or just `youtube` to fuzzy-search YouTube directly from your terminal.
-- **True-Color Thumbnails**: Displays video previews in the terminal via `chafa` (compatible with Kitty, WezTerm, Ghostty, Foot, etc.).
-- **Smart MPV Instance Manager**: Custom `mpv` wrapper cleans tracking tokens from URLs, strips playlist baggage for fast extraction, and prevents duplicate player windows by focusing the existing Hyprland window.
-- **Zero Browser Memory**: Watch high-bitrate 4K/60fps VP9/AV1 videos using a fraction of the RAM of a modern web browser.
-- **Direct Scraper**: Scrapes YouTube directly without relying on flaky or rate-limited public Invidious instances.
+- **YouTube Web Experience in TUI**:
+  - **3-Column Yazi Layout**: Left navigation drawer, center rich results feed, and right detailed metadata & thumbnail inspector.
+  - **Lain Color Aesthetic**: Directly mirrors Yazi's palette (`#000000` base, `#1A1A1A` panels, `#3A3A3A` borders, `#CE7688` rose highlights, `#C1B48E` gold cursor).
+  - **Multi-Type Search**: Instant search across **Videos**, **Channels**, and **Playlists** via Innertube API without API keys or browser engines.
+  - **Channel & Playlist Browsing**: Select a channel to view their recent uploads, or expand a playlist into track lists.
+- **True-Color Inline Thumbnails**:
+  - High-resolution true-color terminal art rendered asynchronously via `chafa`.
+  - Non-blocking background worker caching for zero-latency list navigation.
+- **Smart MPV Pipeline**:
+  - Custom deduplicating `mpv` wrapper strips playlist tracking tokens and prevents redundant windows by focusing existing Hyprland windows.
+  - Hardware-accelerated VP9/AV1 + high-bitrate Opus streaming.
+- **Vi Navigation & Keybindings**:
+  - Full keyboard-driven navigation (`h`/`j`/`k`/`l`, `/`, `Enter`, `c`, `p`, `y`, `q`).
 
 ---
 
 ## 🛠 Dependencies
 
-- **ytfzf** (`ytfzf` via AUR / package manager)
-- **mpv** (`mpv`)
+- **python-textual** (`extra/python-textual`)
+- **mpv** (`extra/mpv`)
 - **yt-dlp** (`yt-dlp`)
-- **chafa** (`chafa` for terminal graphics)
-- **jq** & **fzf**
+- **chafa** (`extra/chafa`)
+- **wl-clipboard** (`extra/wl-clipboard` for URL yank)
 
 ---
 
-## 🎮 Usage
+## 🎮 Keybindings
+
+| Key | Action |
+| --- | --- |
+| `/` | Focus search bar |
+| `Enter` | Play video in MPV / Browse channel / Expand playlist |
+| `c` | Browse channel of highlighted video |
+| `p` | Browse playlist of highlighted item |
+| `m` | Play audio-only stream in MPV |
+| `y` | Yank / Copy YouTube URL to clipboard |
+| `Esc` | Blur search / Return to previous search results |
+| `r` | Refresh current feed or search |
+| `j` / `k` / `Down` / `Up` | Move cursor in list |
+| `h` / `l` / `Left` / `Right`| Switch between Sidebar and Feed |
+| `?` | Show quick help |
+| `q` | Quit |
+
+---
+
+## 🚀 Usage
 
 ```bash
-# Search YouTube with interactive thumbnail browser
-youtube "linux gaming benchmarks"
-
-# Open interactive search prompt
+# Launch interactive YouTube TUI
 youtube
 
-# Play direct video URL through the smart deduplicating MPV wrapper
-mpv "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-```
+# Search YouTube directly from CLI
+youtube "linux gaming benchmarks"
+youtube "veritasium"
 
----
-
-## 📂 Structure
-
-```text
-youtube-tui/
-├── bin/
-│   ├── youtube              # Search & thumbnail CLI wrapper
-│   └── mpv                  # Smart deduplicator & Hyprland window focuser
-├── config/
-│   └── ytfzf/
-│       └── conf.sh          # Scraper & playback configuration
-└── README.md
+# Legacy ytfzf fallback (if desired)
+youtube --legacy "ambient music"
 ```
