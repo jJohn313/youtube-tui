@@ -15,14 +15,17 @@ from youtubetui.theme import (
 )
 from youtubetui.thumbnail import async_render_thumbnail
 
-def make_mini_placeholder(width: int = 16, height: int = 5, item_type: str = "video") -> str:
+def make_mini_placeholder(width: int = 28, height: int = 7, item_type: str = "video") -> str:
     """Generates an aesthetic compact placeholder box for list cards."""
     icon = "▶" if item_type == "video" else ("" if item_type == "channel" else "󰲸")
     lines = []
     lines.append("╭" + "─" * (width - 2) + "╮")
-    lines.append(f"│    {icon} {item_type[:4]:<4}   │")
-    lines.append("│     16:9     │")
-    lines.append("│              │")
+    pad_left = (width - 8) // 2
+    pad_right = (width - 8) - pad_left
+    lines.append(f"│{' ' * pad_left}{icon} {item_type[:4]:<4}{' ' * pad_right}│")
+    lines.append(f"│{' ' * pad_left} 16:9  {' ' * pad_right}│")
+    for _ in range(max(0, height - 4)):
+        lines.append("│" + " " * (width - 2) + "│")
     lines.append("╰" + "─" * (width - 2) + "╯")
     return "\n".join(lines[:height])
 
@@ -55,8 +58,8 @@ class FeedItemWidget(ListItem):
             badge_style = f"bold {FG0}"
 
         with Horizontal(classes="card-container"):
-            # Left side: Mini Thumbnail Box (16 cols x 5 rows)
-            initial_thumb = make_mini_placeholder(16, 5, item_type)
+            # Left side: High-Resolution Mini Thumbnail Box (28 cols x 7 rows)
+            initial_thumb = make_mini_placeholder(28, 7, item_type)
             yield Static(Text.from_ansi(initial_thumb), classes="card-thumb")
 
             # Right side: Rich Details
@@ -80,11 +83,11 @@ class FeedItemWidget(ListItem):
                 meta_line = Text(" • ".join(meta_parts), style=ACC1)
                 yield Label(meta_line, classes="card-meta")
 
-                # Line 3: Description snippet
+                # Line 3-5: Description snippet
                 if desc:
                     snippet = desc.replace("\n", " ").strip()
-                    if len(snippet) > 100:
-                        snippet = snippet[:100] + "..."
+                    if len(snippet) > 200:
+                        snippet = snippet[:200] + "..."
                     yield Label(Text(snippet, style=FG1), classes="card-desc")
                 else:
                     yield Label(Text("", style=FG1), classes="card-desc")
@@ -97,11 +100,11 @@ class FeedItemWidget(ListItem):
             self.run_worker(self._fetch_mini_thumb(thumb_url, item_id), exclusive=False)
 
     async def _fetch_mini_thumb(self, thumb_url: str, item_id: str) -> None:
-        ansi = await async_render_thumbnail(thumb_url, item_id, width=16, height=5)
+        rich_text = await async_render_thumbnail(thumb_url, item_id, width=28, height=7)
         self._rendered = True
         try:
             thumb_box = self.query_one(".card-thumb", Static)
-            thumb_box.update(Text.from_ansi(ansi))
+            thumb_box.update(rich_text)
         except Exception:
             pass
 
@@ -155,7 +158,7 @@ class FeedPane(Vertical):
         background: {BG0};
         border-bottom: solid {BG1};
         padding: 0 1;
-        height: 6;
+        height: 9;
         color: {FG0};
         border-left: heavy transparent;
     }}
@@ -196,13 +199,13 @@ class FeedPane(Vertical):
 
     .card-container {{
         layout: horizontal;
-        height: 5;
+        height: 7;
         width: 100%;
     }}
 
     .card-thumb {{
-        width: 18;
-        height: 5;
+        width: 30;
+        height: 7;
         background: {BG0};
         margin-right: 1;
         content-align: center middle;
@@ -210,7 +213,7 @@ class FeedPane(Vertical):
 
     .card-details {{
         width: 1fr;
-        height: 5;
+        height: 7;
         layout: vertical;
     }}
 
@@ -226,7 +229,7 @@ class FeedPane(Vertical):
     }}
 
     .card-desc {{
-        height: 2;
+        height: 4;
         color: {FG1};
     }}
     """

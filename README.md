@@ -51,6 +51,7 @@ A terminal-first, lightweight YouTube client for Linux recreating the YouTube we
 | `c` | Browse channel of highlighted video |
 | `p` | Browse playlist of highlighted item |
 | `m` | Play audio-only stream in MPV |
+| `t` | View full description & links in default text editor (`micro`, `nano`, `$EDITOR`) |
 | `y` | Yank / Copy YouTube URL to clipboard (`wl-copy`) |
 | `Esc` | Unfocus search bar / Return to previous search results |
 | `r` | Refresh current feed or search |

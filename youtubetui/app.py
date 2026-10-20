@@ -6,7 +6,12 @@ and background smart-MPV streaming.
 """
 
 import asyncio
+import os
+import shutil
+import subprocess
 import sys
+import tempfile
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 from rich.text import Text
 from textual.app import App, ComposeResult
@@ -17,7 +22,7 @@ from youtubetui.api import (
     get_channel_videos, get_curated_feed, get_playlist_videos, search_youtube,
     get_home_feed, get_subscriptions_feed, get_history_feed
 )
-from youtubetui.auth import clear_session, is_authenticated, is_premium, sync_from_browser
+from youtubetui.auth import clear_session, get_cookies_file, is_authenticated, is_premium, sync_from_browser
 from youtubetui.player import copy_to_clipboard, play_url
 from youtubetui.theme import TCSS_THEME
 from youtubetui.ui.feed import FeedItemWidget, FeedPane
@@ -43,6 +48,7 @@ class YouTubeTUIApp(App):
         Binding("c", "open_channel", "Channel", show=True),
         Binding("p", "open_playlist", "Playlist", show=True),
         Binding("m", "play_audio", "Audio MPV", show=True),
+        Binding("t", "view_description", "Description", show=True),
         Binding("y", "yank_url", "Yank URL", show=True),
         Binding("w", "sync_webflow", "Sync Webflow", show=True),
         Binding("a", "sync_zen", "Sync Zen", show=True),
@@ -177,6 +183,85 @@ class YouTubeTUIApp(App):
             return
         ok, msg = play_url(item["url"], audio_only=True)
         self.query_one("#status-bar", StatusBar).set_message(msg)
+
+    def action_view_description(self) -> None:
+        """Opens full video description in terminal text editor (micro/nano/$EDITOR)."""
+        item = self.get_selected_item()
+        if not item:
+            self.query_one("#status-bar", StatusBar).set_message("No item highlighted to view description")
+            return
+
+        self.run_worker(self._open_description_in_editor(item), exclusive=True)
+
+    async def _open_description_in_editor(self, item: Dict[str, Any]) -> None:
+        status_bar = self.query_one("#status-bar", StatusBar)
+        status_bar.set_message("Fetching full description with links...")
+
+        loop = asyncio.get_running_loop()
+        full_desc = await loop.run_in_executor(None, self._fetch_full_description, item)
+
+        title = item.get("title", "Untitled")
+        channel = item.get("channel", "Unknown Channel")
+        url = item.get("url", "")
+        duration = item.get("duration", "")
+        views = item.get("views", "")
+        date = item.get("date", "")
+
+        meta_parts = [p for p in [channel, duration, views, date] if p]
+        meta_line = " • ".join(meta_parts)
+
+        header_lines = [
+            f"# {title}",
+            f"{meta_line}",
+            f"URL: {url}",
+            "=" * 78,
+            "",
+            full_desc or item.get("description", "No description available."),
+            "",
+            "=" * 78,
+            "YouTube-TUI Description Viewer • Close editor to resume"
+        ]
+        text_body = "\n".join(header_lines)
+
+        safe_id = "".join(c for c in item.get("id", "video") if c.isalnum() or c in ("-", "_"))
+        temp_file = Path(tempfile.gettempdir()) / f"youtube-tui-desc-{safe_id}.txt"
+        temp_file.write_text(text_body, encoding="utf-8")
+
+        editor = (
+            os.environ.get("VISUAL")
+            or os.environ.get("EDITOR")
+            or shutil.which("micro")
+            or shutil.which("nano")
+            or "nano"
+        )
+
+        status_bar.set_message(f"Opened description in {os.path.basename(editor)} (save/exit editor to resume)...")
+
+        def _launch():
+            with self.suspend():
+                subprocess.run([editor, str(temp_file)])
+
+        await loop.run_in_executor(None, _launch)
+        status_bar.set_message("Closed description viewer")
+
+    def _fetch_full_description(self, item: Dict[str, Any]) -> str:
+        url = item.get("url", "")
+        if not url:
+            return item.get("description", "")
+
+        cmd = ["yt-dlp", "--print", "description", "--skip-download"]
+        cookies_path = get_cookies_file()
+        if cookies_path:
+            cmd.extend(["--cookies", cookies_path])
+        cmd.append(url)
+
+        try:
+            res = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=6)
+            if res.returncode == 0 and res.stdout.strip():
+                return res.stdout.strip()
+        except Exception:
+            pass
+        return item.get("description", "")
 
     def action_yank_url(self) -> None:
         """Copies the URL of the active item to the clipboard."""

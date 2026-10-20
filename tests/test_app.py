@@ -64,6 +64,10 @@ async def test_app_search_and_navigation():
         await pilot.pause(0.2)
         assert len(feed_pane.items) > 0
 
+        # Test description fetcher
+        desc = app._fetch_full_description(feed_pane.items[0])
+        assert isinstance(desc, str)
+
         await pilot.exit(None)
 
 async def test_auth_and_subscriptions():
