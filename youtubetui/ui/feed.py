@@ -110,6 +110,7 @@ class FeedPane(Vertical):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.items: List[Dict[str, Any]] = []
+        self.current_title: str = "RESULTS"
 
     def compose(self) -> ComposeResult:
         yield Label("RESULTS", id="feed-header-bar")
@@ -118,6 +119,7 @@ class FeedPane(Vertical):
     def populate(self, items: List[Dict[str, Any]], title: str = "RESULTS") -> None:
         """Clears and loads new items into the feed list."""
         self.items = items
+        self.current_title = title
         self.query_one("#feed-header-bar", Label).update(Text(f"{title} ({len(items)} items)"))
         list_view = self.query_one("#feed-list-view", ListView)
         list_view.clear()

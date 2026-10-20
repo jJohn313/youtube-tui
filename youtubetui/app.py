@@ -12,7 +12,7 @@ from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
-from textual.widgets import Input, ListView
+from textual.widgets import Input, Label, ListView
 from youtubetui.api import (
     get_channel_videos, get_curated_feed, get_playlist_videos, search_youtube
 )
@@ -271,8 +271,7 @@ class YouTubeTUIApp(App):
 
         # Stash current search results for Back/Esc
         self.previous_results = list(feed_pane.items)
-        header_lbl = feed_pane.query_one("#feed-header-bar", Label)
-        self.previous_title = str(header_lbl.renderable) if hasattr(header_lbl, "renderable") else "SEARCH RESULTS"
+        self.previous_title = getattr(feed_pane, "current_title", "SEARCH RESULTS")
 
         status_bar.set_message(f"Loading uploads for {channel_name}...")
         header_bar.update_breadcrumb(f"Channel: {channel_name}")
@@ -295,8 +294,7 @@ class YouTubeTUIApp(App):
 
         # Stash current search results for Back/Esc
         self.previous_results = list(feed_pane.items)
-        header_lbl = feed_pane.query_one("#feed-header-bar", Label)
-        self.previous_title = str(header_lbl.renderable) if hasattr(header_lbl, "renderable") else "SEARCH RESULTS"
+        self.previous_title = getattr(feed_pane, "current_title", "SEARCH RESULTS")
 
         status_bar.set_message(f"Loading playlist {playlist_name}...")
         header_bar.update_breadcrumb(f"Playlist: {playlist_name}")

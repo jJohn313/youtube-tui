@@ -46,13 +46,19 @@ async def test_app_search_and_navigation():
         item_types = {item["type"] for item in feed_pane.items}
         assert "video" in item_types
 
+        # Test load_channel call
+        await app.load_channel("UCHnyfMqiRRG1u-2MsSQLbXA", "Veritasium")
+        assert getattr(feed_pane, "current_title") == "CHANNEL: VERITASIUM"
+
         # Navigate down
         await pilot.press("down")
         await pilot.pause(0.2)
         
-        # Test ESC
+        # Test ESC to restore previous results
         await pilot.press("escape")
-        await pilot.pause(0.1)
+        await pilot.pause(0.2)
+        assert len(feed_pane.items) > 0
+
         await pilot.exit(None)
 
 if __name__ == "__main__":
