@@ -13,20 +13,20 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from youtubetui.app import YouTubeTUIApp
 from youtubetui.ui.feed import FeedPane
-from youtubetui.ui.preview import PreviewPane
+from youtubetui.ui.navigation import NavigationSidebar
 from youtubetui.ui.statusbar import StatusBar
 
 async def test_app_startup_and_curated_feed():
     app = YouTubeTUIApp()
     async with app.run_test() as pilot:
-        # Check initial widgets mounted (2-column layout: feed + preview)
+        # Check initial widgets mounted (2-column layout: feed + right navigation sidebar)
         assert app.query_one("#header-bar") is not None
         feed_pane = app.query_one("#feed-pane", FeedPane)
-        preview_pane = app.query_one("#preview-pane", PreviewPane)
+        nav_sidebar = app.query_one("#nav-sidebar", NavigationSidebar)
         status_bar = app.query_one("#status-bar", StatusBar)
         
         assert feed_pane is not None
-        assert preview_pane is not None
+        assert nav_sidebar is not None
         assert status_bar is not None
         
         # Wait for feed items to populate

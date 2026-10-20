@@ -1,12 +1,13 @@
 """
-Sidebar navigation widget mirroring Yazi's left pane and YouTube web's left drawer.
+Sidebar navigation widget placed on the right pillar,
+containing feeds, categories, account sync, and quick action keybinding reference.
 """
 
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.containers import Vertical
-from textual.widgets import Label, ListItem, ListView
-from youtubetui.theme import ACC0, ACC1, BG0, BG1, BG2, BG3, FG0, FG1
+from textual.widgets import Label, ListItem, ListView, Static
+from youtubetui.theme import ACC0, ACC1, BG0, BG1, BG2, BG3, FG0, FG1, PEACH
 
 NAV_ITEMS = [
     ("feed_home", "  My Home"),
@@ -24,8 +25,9 @@ NAV_ITEMS = [
     ("feed_gaming", "  Gaming"),
     ("feed_news", "  News & Science"),
     ("sep2", "── Account ──"),
-    ("action_sync_zen", "  Sync from Zen"),
-    ("action_sync_firefox", "  Sync from Firefox"),
+    ("action_sync_webflow", "  Sync Webflow"),
+    ("action_sync_zen", "  Sync Zen"),
+    ("action_sync_firefox", "  Sync Firefox"),
     ("action_sign_out", "  Sign Out / Guest"),
 ]
 
@@ -42,15 +44,16 @@ class NavItem(ListItem):
             yield Label(self.raw_label, classes="nav-label")
 
 class NavigationSidebar(Vertical):
-    """Left drawer containing categories, filters, and feeds."""
+    """Right-hand navigation pillar containing categories, sync actions, and quick action hints."""
 
     DEFAULT_CSS = f"""
     NavigationSidebar {{
-        width: 24;
+        width: 28;
         height: 100%;
         background: {BG1};
-        border-right: solid {BG3};
+        border-left: solid {BG3};
         padding: 0;
+        layout: vertical;
     }}
     #nav-title {{
         color: {ACC0};
@@ -74,6 +77,8 @@ class NavigationSidebar(Vertical):
         background: {BG2};
         color: {ACC0};
     }}
+    #nav-list > ListItem.-highlight,
+    #nav-list > ListItem:focus,
     #nav-list > ListItem.-selected {{
         background: {ACC0};
         color: {BG0};
@@ -83,9 +88,33 @@ class NavigationSidebar(Vertical):
         color: {FG1};
         text-style: bold;
     }}
+    #quick-actions-box {{
+        margin: 1 1;
+        padding: 0 1;
+        background: {BG2};
+        border: round {BG3};
+        color: {ACC0};
+        height: auto;
+    }}
     """
 
     def compose(self) -> ComposeResult:
         yield Label("NAVIGATE", id="nav-title")
         items = [NavItem(item_id, label) for item_id, label in NAV_ITEMS]
         yield ListView(*items, id="nav-list")
+
+        actions_text = Text()
+        actions_text.append("QUICK ACTIONS\n", style=f"bold {ACC0}")
+        actions_text.append(" Enter ", style=f"bold {PEACH}")
+        actions_text.append(" Play in MPV / Browse\n", style=ACC1)
+        actions_text.append(" m     ", style=f"bold {PEACH}")
+        actions_text.append(" Audio Only MPV\n", style=ACC1)
+        actions_text.append(" c     ", style=f"bold {PEACH}")
+        actions_text.append(" Browse Channel\n", style=ACC1)
+        actions_text.append(" p     ", style=f"bold {PEACH}")
+        actions_text.append(" Browse Playlist\n", style=ACC1)
+        actions_text.append(" y     ", style=f"bold {PEACH}")
+        actions_text.append(" Copy URL (wl-copy)\n", style=ACC1)
+        actions_text.append(" r     ", style=f"bold {PEACH}")
+        actions_text.append(" Refresh Current Feed", style=ACC1)
+        yield Static(actions_text, id="quick-actions-box")

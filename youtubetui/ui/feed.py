@@ -157,7 +157,7 @@ class FeedPane(Vertical):
         padding: 0 1;
         height: 6;
         color: {FG0};
-        border-left: wide transparent;
+        border-left: heavy transparent;
     }}
     
     #feed-list-view > ListItem:hover {{
@@ -169,7 +169,7 @@ class FeedPane(Vertical):
     #feed-list-view > ListItem:focus,
     #feed-list-view > ListItem.-selected {{
         background: {BG2};
-        border-left: wide {ACC0};
+        border-left: heavy {ACC0};
         border-top: solid {BG3};
         border-bottom: solid {BG3};
     }}
@@ -248,12 +248,6 @@ class FeedPane(Vertical):
         self.active_category: str = "home"
 
     def compose(self) -> ComposeResult:
-        with Horizontal(id="feed-category-bar"):
-            for num, label, cat_id in self.CATEGORIES:
-                is_active = "-active" if cat_id == self.active_category else ""
-                classes = f"cat-tab {is_active}".strip()
-                yield Label(f"[{num}] {label}", id=f"cat-{cat_id}", classes=classes)
-
         yield Label("RESULTS", id="feed-header-bar")
         yield ListView(id="feed-list-view")
 

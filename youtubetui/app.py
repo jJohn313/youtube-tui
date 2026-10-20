@@ -23,7 +23,6 @@ from youtubetui.theme import TCSS_THEME
 from youtubetui.ui.feed import FeedItemWidget, FeedPane
 from youtubetui.ui.header import HeaderBar
 from youtubetui.ui.navigation import NavItem, NavigationSidebar
-from youtubetui.ui.preview import PreviewPane
 from youtubetui.ui.statusbar import StatusBar
 
 class YouTubeTUIApp(App):
@@ -36,6 +35,10 @@ class YouTubeTUIApp(App):
         Binding("q", "quit_app", "Quit", show=True),
         Binding("/", "focus_search", "Search", show=True),
         Binding("escape", "escape_action", "Back/Normal", show=True),
+        Binding("h", "focus_feed", "Feed", show=False),
+        Binding("l", "focus_nav", "Nav", show=False),
+        Binding("left", "focus_feed", "Feed", show=False),
+        Binding("right", "focus_nav", "Nav", show=False),
         Binding("c", "open_channel", "Channel", show=True),
         Binding("p", "open_playlist", "Playlist", show=True),
         Binding("m", "play_audio", "Audio MPV", show=True),
@@ -68,7 +71,7 @@ class YouTubeTUIApp(App):
         yield HeaderBar(id="header-bar")
         with Horizontal(id="main-columns"):
             yield FeedPane(id="feed-pane")
-            yield PreviewPane(id="preview-pane")
+            yield NavigationSidebar(id="nav-sidebar")
         yield StatusBar(id="status-bar")
 
     def on_mount(self) -> None:
@@ -117,10 +120,21 @@ class YouTubeTUIApp(App):
             self.query_one("#status-bar", StatusBar).set_message("Restored previous search results")
 
     def action_focus_nav(self) -> None:
-        self.query_one("#nav-list", ListView).focus()
+        search_box = self.query_one("#search-box", Input)
+        if not search_box.has_focus:
+            self.query_one("#nav-list", ListView).focus()
 
     def action_focus_feed(self) -> None:
-        self.query_one("#feed-list-view", ListView).focus()
+        search_box = self.query_one("#search-box", Input)
+        if not search_box.has_focus:
+            self.query_one("#feed-list-view", ListView).focus()
+
+    def action_sign_out(self) -> None:
+        """Clears local session tokens and returns to guest mode."""
+        clear_session()
+        self.query_one("#header-bar", HeaderBar).update_account_status()
+        self.query_one("#status-bar", StatusBar).set_message("Signed out. Operating in Guest mode.")
+        self.run_worker(self.load_feed("trending", "Trending Feed"), exclusive=True)
 
     def get_selected_item(self) -> Optional[Dict[str, Any]]:
         """Returns the currently highlighted item from the center feed."""
@@ -261,7 +275,6 @@ class YouTubeTUIApp(App):
         """Fires when cursor moves across items in the feed."""
         if event.list_view.id == "feed-list-view":
             feed_pane = self.query_one("#feed-pane", FeedPane)
-            preview_pane = self.query_one("#preview-pane", PreviewPane)
             status_bar = self.query_one("#status-bar", StatusBar)
             
             idx = event.list_view.index if event.list_view.index is not None else 0
@@ -271,10 +284,9 @@ class YouTubeTUIApp(App):
             if isinstance(event.item, FeedItemWidget):
                 item = event.item.item_data
                 status_bar.set_message(item.get("title", ""))
-                await preview_pane.update_item(item)
 
     async def on_list_view_selected(self, event: ListView.Selected) -> None:
-        """Fires when Enter is pressed on an item."""
+        """Fires when Enter is pressed on an item in feed or navigation sidebar."""
         if event.list_view.id == "feed-list-view" and isinstance(event.item, FeedItemWidget):
             item = event.item.item_data
             item_type = item.get("type", "video")
@@ -298,6 +310,57 @@ class YouTubeTUIApp(App):
                 pid = item.get("id")
                 await self.load_playlist(pid, item.get("title", "Playlist"))
 
+        elif event.list_view.id == "nav-list" and isinstance(event.item, NavItem):
+            action_id = event.item.item_id
+            if action_id.startswith("sep"):
+                return
+
+            if action_id == "feed_home":
+                self.run_worker(self.load_home_feed(), exclusive=True)
+            elif action_id == "feed_subs":
+                self.run_worker(self.load_subscriptions_feed(), exclusive=True)
+            elif action_id == "feed_history":
+                self.run_worker(self.load_history_feed(), exclusive=True)
+            elif action_id == "explore_all":
+                self.current_filter = "all"
+                if self.current_query:
+                    self.run_worker(self.perform_search(self.current_query), exclusive=True)
+                else:
+                    self.run_worker(self.load_feed("trending", "Trending"), exclusive=True)
+            elif action_id == "explore_videos":
+                self.current_filter = "video"
+                if self.current_query:
+                    self.run_worker(self.perform_search(self.current_query), exclusive=True)
+            elif action_id == "explore_channels":
+                self.current_filter = "channel"
+                if self.current_query:
+                    self.run_worker(self.perform_search(self.current_query), exclusive=True)
+            elif action_id == "explore_playlists":
+                self.current_filter = "playlist"
+                if self.current_query:
+                    self.run_worker(self.perform_search(self.current_query), exclusive=True)
+            elif action_id == "feed_trending":
+                self.run_worker(self.load_feed("trending", "Trending"), exclusive=True)
+            elif action_id == "feed_tech":
+                self.run_worker(self.load_feed("tech", "Tech & Linux"), exclusive=True)
+            elif action_id == "feed_music":
+                self.run_worker(self.load_feed("music", "Music & Lofi"), exclusive=True)
+            elif action_id == "feed_gaming":
+                self.run_worker(self.load_feed("gaming", "Gaming"), exclusive=True)
+            elif action_id == "feed_news":
+                self.run_worker(self.load_feed("news", "News & Science"), exclusive=True)
+            elif action_id == "action_sync_webflow":
+                self.action_sync_webflow()
+            elif action_id == "action_sync_zen":
+                self.action_sync_zen()
+            elif action_id == "action_sync_firefox":
+                self.run_worker(self.sync_account_from_browser("firefox"), exclusive=True)
+            elif action_id == "action_sign_out":
+                self.action_sign_out()
+
+            # Switch focus back to feed list
+            self.query_one("#feed-list-view", ListView).focus()
+
     async def perform_search(self, query: str) -> None:
         """Executes YouTube Innertube search across videos, channels, and playlists."""
         status_bar = self.query_one("#status-bar", StatusBar)
@@ -312,10 +375,6 @@ class YouTubeTUIApp(App):
 
         feed_pane.populate(results, title=f"SEARCH: {query.upper()}")
         status_bar.set_message(f"Loaded {len(results)} items for '{query}'")
-
-        if results:
-            preview_pane = self.query_one("#preview-pane", PreviewPane)
-            await preview_pane.update_item(results[0])
 
     async def load_channel(self, channel_id: str, channel_name: str) -> None:
         """Loads a channel's uploaded videos into the center feed."""
@@ -336,10 +395,6 @@ class YouTubeTUIApp(App):
         feed_pane.populate(videos, title=f"CHANNEL: {channel_name.upper()}")
         status_bar.set_message(f"Loaded {len(videos)} videos from {channel_name}")
 
-        if videos:
-            preview_pane = self.query_one("#preview-pane", PreviewPane)
-            await preview_pane.update_item(videos[0])
-
     async def load_playlist(self, playlist_id: str, playlist_name: str) -> None:
         """Loads a playlist's video items into the center feed."""
         feed_pane = self.query_one("#feed-pane", FeedPane)
@@ -359,10 +414,6 @@ class YouTubeTUIApp(App):
         feed_pane.populate(videos, title=f"PLAYLIST: {playlist_name.upper()}")
         status_bar.set_message(f"Loaded {len(videos)} items from playlist")
 
-        if videos:
-            preview_pane = self.query_one("#preview-pane", PreviewPane)
-            await preview_pane.update_item(videos[0])
-
     async def load_home_feed(self) -> None:
         """Loads personalized YouTube Home recommendations."""
         feed_pane = self.query_one("#feed-pane", FeedPane)
@@ -378,10 +429,6 @@ class YouTubeTUIApp(App):
         feed_pane.populate(items, title="MY HOME FEED")
         status_bar.set_message(f"Loaded {len(items)} personalized recommendations")
 
-        if items:
-            preview_pane = self.query_one("#preview-pane", PreviewPane)
-            await preview_pane.update_item(items[0])
-
     async def load_subscriptions_feed(self) -> None:
         """Loads latest uploads from subscribed channels."""
         feed_pane = self.query_one("#feed-pane", FeedPane)
@@ -395,15 +442,11 @@ class YouTubeTUIApp(App):
         items = await loop.run_in_executor(None, get_subscriptions_feed)
 
         if not items:
-            status_bar.set_message("No subscriptions found. Please sync your YouTube account via 'a'.")
+            status_bar.set_message("No subscriptions found. Please sync your YouTube account via 'a' or 'w'.")
             return
 
         feed_pane.populate(items, title="SUBSCRIPTIONS FEED")
         status_bar.set_message(f"Loaded {len(items)} recent uploads from your subscriptions")
-
-        if items:
-            preview_pane = self.query_one("#preview-pane", PreviewPane)
-            await preview_pane.update_item(items[0])
 
     async def load_history_feed(self) -> None:
         """Loads user watch history."""
@@ -418,15 +461,11 @@ class YouTubeTUIApp(App):
         items = await loop.run_in_executor(None, get_history_feed)
 
         if not items:
-            status_bar.set_message("No watch history found. Please sync your YouTube account via 'a'.")
+            status_bar.set_message("No watch history found. Please sync your YouTube account via 'a' or 'w'.")
             return
 
         feed_pane.populate(items, title="WATCH HISTORY")
         status_bar.set_message(f"Loaded {len(items)} videos from watch history")
-
-        if items:
-            preview_pane = self.query_one("#preview-pane", PreviewPane)
-            await preview_pane.update_item(items[0])
 
     async def load_feed(self, category: str, label: str) -> None:
         """Loads curated feed topics."""
@@ -442,10 +481,6 @@ class YouTubeTUIApp(App):
 
         feed_pane.populate(items, title=f"FEED: {label.upper()}")
         status_bar.set_message(f"Loaded {len(items)} items in {label}")
-
-        if items:
-            preview_pane = self.query_one("#preview-pane", PreviewPane)
-            await preview_pane.update_item(items[0])
 
 def main():
     query = " ".join(sys.argv[1:]) if len(sys.argv) > 1 else ""
