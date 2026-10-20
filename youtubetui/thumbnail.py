@@ -73,8 +73,11 @@ def sync_render_thumbnail(url: str, item_id: str = "", width: int = 42, height: 
             return render_fallback_placeholder(width, height, "Download failed")
 
     # Execute chafa to convert JPEG into true-color half-block ANSI
+    # Note: --probe=off and stdin=DEVNULL are mandatory to prevent chafa from probing /dev/tty
+    # and leaking escape query responses into the terminal stdin / search input!
     cmd = [
         chafa_bin,
+        "--probe=off",
         "--format=symbols",
         "--symbols=vhalf",
         "--colors=truecolor",
@@ -83,7 +86,7 @@ def sync_render_thumbnail(url: str, item_id: str = "", width: int = 42, height: 
     ]
 
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+        res = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=5)
         if res.returncode == 0 and res.stdout.strip():
             rendered = res.stdout
             if len(_RENDER_CACHE) >= _MAX_CACHE_SIZE:

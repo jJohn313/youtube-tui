@@ -30,6 +30,7 @@ class YouTubeTUIApp(App):
 
     CSS = TCSS_THEME
     TITLE = "YouTube TUI"
+    AUTO_FOCUS = "#feed-list-view"
 
     BINDINGS = [
         Binding("q", "quit_app", "Quit", show=True),
@@ -79,9 +80,10 @@ class YouTubeTUIApp(App):
         status_bar = self.query_one("#status-bar", StatusBar)
         status_bar.set_mode("NORMAL")
 
+        search_input = self.query_one("#search-box", Input)
+        search_input.value = self.initial_query or ""
+
         if self.initial_query:
-            search_input = self.query_one("#search-box", Input)
-            search_input.value = self.initial_query
             self.run_worker(self.perform_search(self.initial_query), exclusive=True)
         elif is_authenticated():
             self.run_worker(self.load_home_feed(), exclusive=True)

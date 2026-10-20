@@ -49,6 +49,7 @@ def play_url(url: str, audio_only: bool = False) -> Tuple[bool, str]:
     try:
         subprocess.Popen(
             cmd,
+            stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             start_new_session=True
