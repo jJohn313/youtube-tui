@@ -9,6 +9,7 @@ import shutil
 import subprocess
 from pathlib import Path
 from typing import Tuple
+from youtubetui.auth import get_cookies_file
 
 def get_mpv_path() -> str:
     """Finds the best available mpv binary, prioritizing our smart wrapper."""
@@ -38,6 +39,11 @@ def play_url(url: str, audio_only: bool = False) -> Tuple[bool, str]:
     cmd = [mpv_bin]
     if audio_only:
         cmd.extend(["--no-video", "--ytdl-format=bestaudio/best"])
+    
+    cookies_path = get_cookies_file()
+    if cookies_path:
+        cmd.append(f"--ytdl-raw-options=cookies={cookies_path}")
+
     cmd.append(url)
 
     try:

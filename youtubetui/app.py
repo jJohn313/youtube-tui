@@ -14,8 +14,10 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Input, Label, ListView
 from youtubetui.api import (
-    get_channel_videos, get_curated_feed, get_playlist_videos, search_youtube
+    get_channel_videos, get_curated_feed, get_playlist_videos, search_youtube,
+    get_home_feed, get_subscriptions_feed, get_history_feed
 )
+from youtubetui.auth import clear_session, is_authenticated, is_premium, sync_from_browser
 from youtubetui.player import copy_to_clipboard, play_url
 from youtubetui.theme import TCSS_THEME
 from youtubetui.ui.feed import FeedItemWidget, FeedPane
@@ -38,6 +40,7 @@ class YouTubeTUIApp(App):
         Binding("p", "open_playlist", "Playlist", show=True),
         Binding("m", "play_audio", "Audio MPV", show=True),
         Binding("y", "yank_url", "Yank URL", show=True),
+        Binding("a", "toggle_account_sync", "Account Sync", show=True),
         Binding("r", "refresh_feed", "Refresh", show=True),
         Binding("h", "focus_nav", "Sidebar", show=False),
         Binding("l", "focus_feed", "Feed", show=False),
@@ -69,6 +72,8 @@ class YouTubeTUIApp(App):
             search_input = self.query_one("#search-box", Input)
             search_input.value = self.initial_query
             self.run_worker(self.perform_search(self.initial_query), exclusive=True)
+        elif is_authenticated():
+            self.run_worker(self.load_home_feed(), exclusive=True)
         else:
             self.run_worker(self.load_feed("trending", "Trending Feed"), exclusive=True)
 
@@ -165,8 +170,27 @@ class YouTubeTUIApp(App):
         else:
             self.run_worker(self.load_feed("trending", "Trending Feed"))
 
+    def action_toggle_account_sync(self) -> None:
+        """Toggles / triggers browser account synchronization."""
+        self.run_worker(self.sync_account_from_browser("zen"), exclusive=True)
+
+    async def sync_account_from_browser(self, browser: str = "zen") -> None:
+        """Syncs YouTube login session from browser."""
+        status_bar = self.query_one("#status-bar", StatusBar)
+        header_bar = self.query_one("#header-bar", HeaderBar)
+        
+        status_bar.set_message(f"Connecting YouTube account from {browser} browser...")
+        loop = asyncio.get_running_loop()
+        ok, msg = await loop.run_in_executor(None, sync_from_browser, browser)
+        
+        status_bar.set_message(msg)
+        header_bar.update_account_status()
+        
+        if ok:
+            await self.load_home_feed()
+
     def action_show_help(self) -> None:
-        msg = "[/] Search  [Enter] Play/Open  [c] Channel  [p] Playlist  [m] Audio  [y] Yank  [r] Refresh  [q] Quit"
+        msg = "[/] Search  [Enter] Play/Open  [a] Sync Account  [c] Channel  [p] Playlist  [m] Audio  [y] Yank  [r] Refresh  [q] Quit"
         self.query_one("#status-bar", StatusBar).set_message(msg)
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
@@ -222,7 +246,13 @@ class YouTubeTUIApp(App):
 
         elif event.list_view.id == "nav-list" and isinstance(event.item, NavItem):
             item_id = event.item.item_id
-            if item_id == "explore_all":
+            if item_id == "feed_home":
+                await self.load_home_feed()
+            elif item_id == "feed_subs":
+                await self.load_subscriptions_feed()
+            elif item_id == "feed_history":
+                await self.load_history_feed()
+            elif item_id == "explore_all":
                 self.current_filter = "all"
                 if self.current_query:
                     await self.perform_search(self.current_query)
@@ -238,6 +268,15 @@ class YouTubeTUIApp(App):
                 self.current_filter = "playlists"
                 if self.current_query:
                     await self.perform_search(self.current_query)
+            elif item_id == "action_sync_zen":
+                await self.sync_account_from_browser("zen")
+            elif item_id == "action_sync_firefox":
+                await self.sync_account_from_browser("firefox")
+            elif item_id == "action_sign_out":
+                clear_session()
+                self.query_one("#header-bar", HeaderBar).update_account_status()
+                self.query_one("#status-bar", StatusBar).set_message("Signed out. Switched to Guest mode.")
+                await self.load_feed("trending", "Trending Feed")
             elif item_id.startswith("feed_"):
                 cat = item_id.replace("feed_", "")
                 await self.load_feed(cat, event.item.raw_label.strip())
@@ -308,6 +347,71 @@ class YouTubeTUIApp(App):
         if videos:
             preview_pane = self.query_one("#preview-pane", PreviewPane)
             await preview_pane.update_item(videos[0])
+
+    async def load_home_feed(self) -> None:
+        """Loads personalized YouTube Home recommendations."""
+        feed_pane = self.query_one("#feed-pane", FeedPane)
+        status_bar = self.query_one("#status-bar", StatusBar)
+        header_bar = self.query_one("#header-bar", HeaderBar)
+
+        status_bar.set_message("Loading personalized Home feed...")
+        header_bar.update_breadcrumb("Feed: My Home")
+
+        loop = asyncio.get_running_loop()
+        items = await loop.run_in_executor(None, get_home_feed)
+
+        feed_pane.populate(items, title="MY HOME FEED")
+        status_bar.set_message(f"Loaded {len(items)} personalized recommendations")
+
+        if items:
+            preview_pane = self.query_one("#preview-pane", PreviewPane)
+            await preview_pane.update_item(items[0])
+
+    async def load_subscriptions_feed(self) -> None:
+        """Loads latest uploads from subscribed channels."""
+        feed_pane = self.query_one("#feed-pane", FeedPane)
+        status_bar = self.query_one("#status-bar", StatusBar)
+        header_bar = self.query_one("#header-bar", HeaderBar)
+
+        status_bar.set_message("Loading Subscriptions feed...")
+        header_bar.update_breadcrumb("Feed: Subscriptions")
+
+        loop = asyncio.get_running_loop()
+        items = await loop.run_in_executor(None, get_subscriptions_feed)
+
+        if not items:
+            status_bar.set_message("No subscriptions found. Please sync your YouTube account via 'a'.")
+            return
+
+        feed_pane.populate(items, title="SUBSCRIPTIONS FEED")
+        status_bar.set_message(f"Loaded {len(items)} recent uploads from your subscriptions")
+
+        if items:
+            preview_pane = self.query_one("#preview-pane", PreviewPane)
+            await preview_pane.update_item(items[0])
+
+    async def load_history_feed(self) -> None:
+        """Loads user watch history."""
+        feed_pane = self.query_one("#feed-pane", FeedPane)
+        status_bar = self.query_one("#status-bar", StatusBar)
+        header_bar = self.query_one("#header-bar", HeaderBar)
+
+        status_bar.set_message("Loading Watch History...")
+        header_bar.update_breadcrumb("Feed: Watch History")
+
+        loop = asyncio.get_running_loop()
+        items = await loop.run_in_executor(None, get_history_feed)
+
+        if not items:
+            status_bar.set_message("No watch history found. Please sync your YouTube account via 'a'.")
+            return
+
+        feed_pane.populate(items, title="WATCH HISTORY")
+        status_bar.set_message(f"Loaded {len(items)} videos from watch history")
+
+        if items:
+            preview_pane = self.query_one("#preview-pane", PreviewPane)
+            await preview_pane.update_item(items[0])
 
     async def load_feed(self, category: str, label: str) -> None:
         """Loads curated feed topics."""

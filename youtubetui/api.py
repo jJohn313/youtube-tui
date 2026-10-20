@@ -11,6 +11,7 @@ import subprocess
 import urllib.parse
 import urllib.request
 from typing import Any, Dict, List, Optional
+from youtubetui.auth import get_auth_headers
 
 INNERTUBE_URL = "https://www.youtube.com/youtubei/v1/search"
 BROWSE_URL = "https://www.youtube.com/youtubei/v1/browse"
@@ -59,45 +60,8 @@ def _clean_thumb_url(url: str) -> str:
         return "https:" + url
     return url
 
-def search_youtube(query: str, filter_type: str = "all") -> List[Dict[str, Any]]:
-    """
-    Searches YouTube via Innertube API and parses Videos, Channels, and Playlists.
-    """
-    if not query.strip():
-        return []
-
-    payload = {
-        "context": {
-            "client": {
-                "clientName": "WEB",
-                "clientVersion": "2.20240101.00.00",
-                "hl": "en",
-                "gl": "US"
-            }
-        },
-        "query": query.strip()
-    }
-    
-    if filter_type in FILTER_PARAMS:
-        payload["params"] = FILTER_PARAMS[filter_type]
-
-    req = urllib.request.Request(
-        INNERTUBE_URL,
-        headers={
-            "Content-Type": "application/json",
-            "User-Agent": USER_AGENT,
-            "Accept-Language": "en-US,en;q=0.9"
-        },
-        data=json.dumps(payload).encode()
-    )
-
-    try:
-        with urllib.request.urlopen(req, timeout=8) as resp:
-            data = json.load(resp)
-    except Exception:
-        # Fallback to direct web scraping
-        return _search_fallback_scrape(query, filter_type)
-
+def extract_browse_items(data: Any) -> List[Dict[str, Any]]:
+    """Traverses an Innertube browse or search response and extracts structured items."""
     results: List[Dict[str, Any]] = []
     seen_ids = set()
 
@@ -112,6 +76,8 @@ def search_youtube(query: str, filter_type: str = "all") -> List[Dict[str, Any]]
                     title = ""
                     if "title" in v and "runs" in v["title"] and v["title"]["runs"]:
                         title = v["title"]["runs"][0].get("text", "")
+                    elif "title" in v and "simpleText" in v["title"]:
+                        title = v["title"]["simpleText"]
                     
                     channel = ""
                     channel_id = ""
@@ -122,6 +88,10 @@ def search_youtube(query: str, filter_type: str = "all") -> List[Dict[str, Any]]
                     elif "longBylineText" in v and "runs" in v["longBylineText"] and v["longBylineText"]["runs"]:
                         channel = v["longBylineText"]["runs"][0].get("text", "")
                         ep = v["longBylineText"]["runs"][0].get("navigationEndpoint", {}).get("browseEndpoint", {})
+                        channel_id = ep.get("browseId", "")
+                    elif "shortBylineText" in v and "runs" in v["shortBylineText"] and v["shortBylineText"]["runs"]:
+                        channel = v["shortBylineText"]["runs"][0].get("text", "")
+                        ep = v["shortBylineText"]["runs"][0].get("navigationEndpoint", {}).get("browseEndpoint", {})
                         channel_id = ep.get("browseId", "")
 
                     duration = v.get("lengthText", {}).get("simpleText", "")
@@ -137,19 +107,20 @@ def search_youtube(query: str, filter_type: str = "all") -> List[Dict[str, Any]]
                     thumbs = v.get("thumbnail", {}).get("thumbnails", [])
                     thumb_url = thumbs[-1].get("url", "") if thumbs else f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg"
 
-                    results.append({
-                        "type": "video",
-                        "id": vid,
-                        "url": f"https://www.youtube.com/watch?v={vid}",
-                        "title": title,
-                        "channel": channel,
-                        "channel_id": channel_id,
-                        "duration": duration,
-                        "views": views,
-                        "date": date,
-                        "description": desc,
-                        "thumbnail": _clean_thumb_url(thumb_url)
-                    })
+                    if title:
+                        results.append({
+                            "type": "video",
+                            "id": vid,
+                            "url": f"https://www.youtube.com/watch?v={vid}",
+                            "title": title,
+                            "channel": channel,
+                            "channel_id": channel_id,
+                            "duration": duration,
+                            "views": views,
+                            "date": date,
+                            "description": desc,
+                            "thumbnail": _clean_thumb_url(thumb_url)
+                        })
 
             # 2. Channel Renderer
             elif "channelRenderer" in obj:
@@ -169,19 +140,20 @@ def search_youtube(query: str, filter_type: str = "all") -> List[Dict[str, Any]]
                     thumbs = c.get("thumbnail", {}).get("thumbnails", [])
                     thumb_url = thumbs[-1].get("url", "") if thumbs else ""
 
-                    results.append({
-                        "type": "channel",
-                        "id": cid,
-                        "url": f"https://www.youtube.com/channel/{cid}",
-                        "title": title,
-                        "channel": title,
-                        "channel_id": cid,
-                        "duration": "Channel",
-                        "views": subscribers,
-                        "date": "",
-                        "description": desc,
-                        "thumbnail": _clean_thumb_url(thumb_url)
-                    })
+                    if title:
+                        results.append({
+                            "type": "channel",
+                            "id": cid,
+                            "url": f"https://www.youtube.com/channel/{cid}",
+                            "title": title,
+                            "channel": title,
+                            "channel_id": cid,
+                            "duration": "Channel",
+                            "views": subscribers,
+                            "date": "",
+                            "description": desc,
+                            "thumbnail": _clean_thumb_url(thumb_url)
+                        })
 
             # 3. Playlist Renderer
             elif "playlistRenderer" in obj:
@@ -198,19 +170,20 @@ def search_youtube(query: str, filter_type: str = "all") -> List[Dict[str, Any]]
                     thumbs = p.get("thumbnails", [{}])[0].get("thumbnails", [])
                     thumb_url = thumbs[-1].get("url", "") if thumbs else ""
 
-                    results.append({
-                        "type": "playlist",
-                        "id": pid,
-                        "url": f"https://www.youtube.com/playlist?list={pid}",
-                        "title": title,
-                        "channel": channel,
-                        "channel_id": "",
-                        "duration": f"{count} videos" if count else "Playlist",
-                        "views": f"{count} videos" if count else "Playlist",
-                        "date": "Playlist",
-                        "description": f"Curated playlist by {channel}",
-                        "thumbnail": _clean_thumb_url(thumb_url)
-                    })
+                    if title:
+                        results.append({
+                            "type": "playlist",
+                            "id": pid,
+                            "url": f"https://www.youtube.com/playlist?list={pid}",
+                            "title": title,
+                            "channel": channel,
+                            "channel_id": "",
+                            "duration": f"{count} videos" if count else "Playlist",
+                            "views": f"{count} videos" if count else "Playlist",
+                            "date": "Playlist",
+                            "description": f"Curated playlist by {channel}",
+                            "thumbnail": _clean_thumb_url(thumb_url)
+                        })
 
             # 4. Modern lockupViewModel (YouTube Web Playlists & Cards)
             elif "lockupViewModel" in obj:
@@ -223,21 +196,28 @@ def search_youtube(query: str, filter_type: str = "all") -> List[Dict[str, Any]]
                 channel = ""
                 channel_id = ""
                 desc = ""
+                duration = ""
+                views = ""
+                date = ""
                 
                 for row in rows:
                     parts = row.get("metadataParts", [])
                     for part in parts:
                         text_obj = part.get("text", {})
                         content = text_obj.get("content", "")
-                        if "Playlist" in content:
-                            pass
-                        elif not channel and content:
+                        if not content:
+                            continue
+                        if not channel:
                             channel = content
                             for cr in text_obj.get("commandRuns", []):
                                 browse_ep = cr.get("onTap", {}).get("innertubeCommand", {}).get("browseEndpoint", {})
                                 if browse_ep.get("browseId"):
                                     channel_id = browse_ep["browseId"]
-                        elif not desc and content:
+                        elif "views" in content or "view" in content:
+                            views = content
+                        elif "ago" in content or "Streamed" in content:
+                            date = content
+                        elif not desc:
                             desc = content
 
                 # Extract URL & ID
@@ -245,7 +225,6 @@ def search_youtube(query: str, filter_type: str = "all") -> List[Dict[str, Any]]
                 item_id = ""
                 item_type = "video"
                 
-                # Check for playlist
                 if "PLAYLIST" in c_type:
                     item_type = "playlist"
                 
@@ -263,6 +242,9 @@ def search_youtube(query: str, filter_type: str = "all") -> List[Dict[str, Any]]
                 elif watch_ep.get("videoId"):
                     item_id = watch_ep["videoId"]
                     item_type = "video"
+                    url = f"https://www.youtube.com/watch?v={item_id}"
+                elif lv.get("contentId"):
+                    item_id = lv["contentId"]
                     url = f"https://www.youtube.com/watch?v={item_id}"
 
                 # Extract thumbnail
@@ -286,10 +268,10 @@ def search_youtube(query: str, filter_type: str = "all") -> List[Dict[str, Any]]
                         "title": title,
                         "channel": channel,
                         "channel_id": channel_id,
-                        "duration": "Playlist" if item_type == "playlist" else "",
-                        "views": "Playlist" if item_type == "playlist" else "",
-                        "date": "",
-                        "description": desc or f"Playlist by {channel}",
+                        "duration": "Playlist" if item_type == "playlist" else duration,
+                        "views": views,
+                        "date": date,
+                        "description": desc or (f"Playlist by {channel}" if item_type == "playlist" else ""),
                         "thumbnail": _clean_thumb_url(thumb_url)
                     })
 
@@ -300,6 +282,50 @@ def search_youtube(query: str, filter_type: str = "all") -> List[Dict[str, Any]]
                 parse_renderers(i)
 
     parse_renderers(data)
+    return results
+
+def search_youtube(query: str, filter_type: str = "all") -> List[Dict[str, Any]]:
+    """
+    Searches YouTube via Innertube API and parses Videos, Channels, and Playlists.
+    """
+    if not query.strip():
+        return []
+
+    payload = {
+        "context": {
+            "client": {
+                "clientName": "WEB",
+                "clientVersion": "2.20240101.00.00",
+                "hl": "en",
+                "gl": "US"
+            }
+        },
+        "query": query.strip()
+    }
+    
+    if filter_type in FILTER_PARAMS:
+        payload["params"] = FILTER_PARAMS[filter_type]
+
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": USER_AGENT,
+        "Accept-Language": "en-US,en;q=0.9"
+    }
+    headers.update(get_auth_headers())
+
+    req = urllib.request.Request(
+        INNERTUBE_URL,
+        headers=headers,
+        data=json.dumps(payload).encode()
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            data = json.load(resp)
+    except Exception:
+        return _search_fallback_scrape(query, filter_type)
+
+    results = extract_browse_items(data)
 
     # Filter if requested
     if filter_type != "all":
@@ -464,3 +490,96 @@ def get_curated_feed(category: str) -> List[Dict[str, Any]]:
     """Retrieves curated starter feed items based on category."""
     query = CURATED_FEEDS.get(category, CURATED_FEEDS["all"])
     return search_youtube(query, filter_type="all")
+
+def get_home_feed() -> List[Dict[str, Any]]:
+    """
+    Fetches the authenticated user's personalized YouTube Home recommendations.
+    Falls back to curated trending feed if not signed in or on error.
+    """
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": USER_AGENT,
+        "Accept-Language": "en-US,en;q=0.9"
+    }
+    auth_headers = get_auth_headers()
+    headers.update(auth_headers)
+
+    req = urllib.request.Request(
+        BROWSE_URL,
+        headers=headers,
+        data=json.dumps({
+            "context": {"client": {"clientName": "WEB", "clientVersion": "2.20240101.00.00", "hl": "en", "gl": "US"}},
+            "browseId": "FEwhat_to_watch"
+        }).encode()
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.load(resp)
+            items = extract_browse_items(data)
+            if items:
+                return items
+    except Exception:
+        pass
+
+    return get_curated_feed("all")
+
+def get_subscriptions_feed() -> List[Dict[str, Any]]:
+    """
+    Fetches latest uploads from channels the user is subscribed to (FEsubscriptions).
+    """
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": USER_AGENT,
+        "Accept-Language": "en-US,en;q=0.9"
+    }
+    auth_headers = get_auth_headers()
+    if not auth_headers:
+        return []
+    headers.update(auth_headers)
+
+    req = urllib.request.Request(
+        BROWSE_URL,
+        headers=headers,
+        data=json.dumps({
+            "context": {"client": {"clientName": "WEB", "clientVersion": "2.20240101.00.00", "hl": "en", "gl": "US"}},
+            "browseId": "FEsubscriptions"
+        }).encode()
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.load(resp)
+            return extract_browse_items(data)
+    except Exception:
+        return []
+
+def get_history_feed() -> List[Dict[str, Any]]:
+    """
+    Fetches the user's recent YouTube watch history (FEhistory).
+    """
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": USER_AGENT,
+        "Accept-Language": "en-US,en;q=0.9"
+    }
+    auth_headers = get_auth_headers()
+    if not auth_headers:
+        return []
+    headers.update(auth_headers)
+
+    req = urllib.request.Request(
+        BROWSE_URL,
+        headers=headers,
+        data=json.dumps({
+            "context": {"client": {"clientName": "WEB", "clientVersion": "2.20240101.00.00", "hl": "en", "gl": "US"}},
+            "browseId": "FEhistory"
+        }).encode()
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.load(resp)
+            return extract_browse_items(data)
+    except Exception:
+        return []

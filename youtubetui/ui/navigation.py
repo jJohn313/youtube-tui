@@ -9,16 +9,24 @@ from textual.widgets import Label, ListItem, ListView
 from youtubetui.theme import ACC0, ACC1, BG0, BG1, BG2, BG3, FG0, FG1
 
 NAV_ITEMS = [
+    ("feed_home", "  My Home"),
+    ("feed_subs", "  Subscriptions"),
+    ("feed_history", "  Watch History"),
+    ("sep0", "── Explore ──"),
     ("explore_all", "  All Results"),
     ("explore_videos", "  Videos Only"),
     ("explore_channels", "  Channels Only"),
     ("explore_playlists", "  Playlists Only"),
-    ("sep1", "── Feeds ──"),
+    ("sep1", "── Curated ──"),
     ("feed_trending", "  Trending"),
     ("feed_tech", "  Tech & Linux"),
     ("feed_music", "  Music & Lofi"),
     ("feed_gaming", "  Gaming"),
     ("feed_news", "  News & Science"),
+    ("sep2", "── Account ──"),
+    ("action_sync_zen", "  Sync from Zen"),
+    ("action_sync_firefox", "  Sync from Firefox"),
+    ("action_sign_out", "  Sign Out / Guest"),
 ]
 
 class NavItem(ListItem):

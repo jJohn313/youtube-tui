@@ -9,6 +9,7 @@ A terminal-first, lightweight YouTube client for Linux recreating the YouTube we
 - **YouTube Web Experience in TUI**:
   - **3-Column Yazi Layout**: Left navigation drawer, center rich results feed, and right detailed metadata & thumbnail inspector.
   - **Lain Color Aesthetic**: Directly mirrors Yazi's palette (`#000000` base, `#1A1A1A` panels, `#3A3A3A` borders, `#CE7688` rose highlights, `#C1B48E` gold cursor).
+  - **YouTube Premium & Account Sync**: Seamlessly sync authenticated sessions from your browser (Zen, Firefox) with one keystroke (`a`), unlocking ad-free high-bitrate streaming, your personal algorithmic Home feed (`FEwhat_to_watch`), Subscriptions (`FEsubscriptions`), and Watch History (`FEhistory`).
   - **Multi-Type Search**: Instant search across **Videos**, **Channels**, and **Playlists** via Innertube API without API keys or browser engines.
   - **Channel & Playlist Browsing**: Select a channel to view their recent uploads, or expand a playlist into track lists.
 - **True-Color Inline Thumbnails**:
@@ -38,6 +39,7 @@ A terminal-first, lightweight YouTube client for Linux recreating the YouTube we
 | --- | --- |
 | `/` | Focus search bar |
 | `Enter` | Play video in MPV / Browse channel / Expand playlist |
+| `a` | Sync YouTube Account / Toggle Session from Browser |
 | `c` | Browse channel of highlighted video |
 | `p` | Browse playlist of highlighted item |
 | `m` | Play audio-only stream in MPV |

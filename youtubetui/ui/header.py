@@ -41,6 +41,14 @@ class HeaderBar(Horizontal):
         background: {BG3};
         color: {PEACH};
     }}
+    #account-badge {{
+        width: auto;
+        height: 1;
+        padding: 0 1;
+        margin-right: 1;
+        text-style: bold;
+        content-align: center middle;
+    }}
     #breadcrumb-box {{
         width: auto;
         height: 1;
@@ -59,10 +67,32 @@ class HeaderBar(Horizontal):
     """
 
     def compose(self) -> ComposeResult:
+        from youtubetui.auth import is_authenticated, is_premium
         yield Static("YouTube", id="logo-box")
+        
+        badge_text, badge_style = self._get_badge_info(is_authenticated(), is_premium())
+        yield Static(badge_text, id="account-badge")
+        
         yield Input(placeholder="Search YouTube... (Press / to focus)", id="search-box")
         yield Label("Feed: Home", id="breadcrumb-box")
-        yield Label(Text("[/] Search  [Enter] Open  [c] Channel  [y] Yank  [q] Quit"), id="keyhint-box")
+        yield Label(Text("[/] Search  [Enter] Open  [c] Channel  [a] Account  [y] Yank  [q] Quit"), id="keyhint-box")
+
+    def _get_badge_info(self, authenticated: bool, premium: bool) -> tuple[Text, str]:
+        if premium:
+            return Text("★ PREMIUM", style=f"bold {ACC0}"), f"background: {BG2}; color: {ACC0};"
+        elif authenticated:
+            return Text("● SIGNED IN", style=f"bold {FG0}"), f"background: {BG2}; color: {FG0};"
+        else:
+            return Text("○ GUEST", style=FG1), f"background: {BG1}; color: {FG1};"
+
+    def update_account_status(self) -> None:
+        """Refreshes the account status badge."""
+        from youtubetui.auth import is_authenticated, is_premium
+        badge_text, _ = self._get_badge_info(is_authenticated(), is_premium())
+        try:
+            self.query_one("#account-badge", Static).update(badge_text)
+        except Exception:
+            pass
 
     def update_breadcrumb(self, text: str) -> None:
         try:
