@@ -92,8 +92,50 @@ async def test_auth_and_subscriptions():
 
         await pilot.exit(None)
 
+async def test_playlists_and_history():
+    app = YouTubeTUIApp()
+    async with app.run_test() as pilot:
+        feed_pane = app.query_one("#feed-pane", FeedPane)
+
+        # Test Watch History feed
+        await app.load_history_feed()
+        assert getattr(feed_pane, "current_title") == "WATCH HISTORY"
+        assert len(feed_pane.items) > 0
+
+        # Test My Playlists feed
+        await app.load_playlists_feed()
+        assert getattr(feed_pane, "current_title") == "MY PLAYLISTS"
+        assert len(feed_pane.items) > 0
+
+        # Test opening a playlist from feed (handles large synced playlists)
+        first_pl = feed_pane.items[0]
+        assert first_pl.get("type") == "playlist"
+        pid = first_pl.get("id")
+        await app.load_playlist(pid, first_pl.get("title", "Playlist"))
+        assert "PLAYLIST:" in getattr(feed_pane, "current_title", "")
+        assert len(feed_pane.items) > 0
+        assert feed_pane.items[0].get("type") == "video"
+
+        # Test Back (escape) restores My Playlists
+        await pilot.press("escape")
+        await pilot.pause(0.2)
+        assert getattr(feed_pane, "current_title") == "MY PLAYLISTS"
+
+        # Test pressing 'b' to open PlaylistModal and pressing Escape
+        await app.load_history_feed()
+        await pilot.pause(0.2)
+        app.action_add_to_playlist()
+        await pilot.pause(0.2)
+        assert len(app.screen_stack) > 1
+        await pilot.press("escape")
+        await pilot.pause(0.2)
+        assert len(app.screen_stack) == 1
+
+        await pilot.exit(None)
+
 if __name__ == "__main__":
     asyncio.run(test_app_startup_and_curated_feed())
     asyncio.run(test_app_search_and_navigation())
     asyncio.run(test_auth_and_subscriptions())
+    asyncio.run(test_playlists_and_history())
     print("✔ All headless integration tests passed!")

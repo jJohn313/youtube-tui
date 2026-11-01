@@ -12,9 +12,9 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from rich.text import Text
-from textual.app import App, ComposeResult
+from textual.app import App, ComposeResult, SuspendNotSupported
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Input, Label, ListView
@@ -24,9 +24,14 @@ from youtubetui.api import (
 )
 from youtubetui.auth import clear_session, get_cookies_file, is_authenticated, is_premium, sync_from_browser
 from youtubetui.player import copy_to_clipboard, play_url
+from youtubetui.playlists import (
+    get_all_user_playlists,
+    get_playlist_videos_with_local
+)
 from youtubetui.theme import TCSS_THEME
 from youtubetui.ui.feed import FeedItemWidget, FeedPane
 from youtubetui.ui.header import HeaderBar
+from youtubetui.ui.modal import PlaylistModal
 from youtubetui.ui.navigation import NavItem, NavigationSidebar
 from youtubetui.ui.statusbar import StatusBar
 
@@ -47,6 +52,7 @@ class YouTubeTUIApp(App):
         Binding("right", "focus_nav", "Nav", show=False),
         Binding("c", "open_channel", "Channel", show=True),
         Binding("p", "open_playlist", "Playlist", show=True),
+        Binding("b", "add_to_playlist", "Add to Playlist", show=True),
         Binding("m", "play_audio", "Audio MPV", show=True),
         Binding("t", "view_description", "Description", show=True),
         Binding("y", "yank_url", "Yank URL", show=True),
@@ -55,10 +61,11 @@ class YouTubeTUIApp(App):
         Binding("1", "cat_home", "Home", show=False),
         Binding("2", "cat_subs", "Subscriptions", show=False),
         Binding("3", "cat_history", "History", show=False),
-        Binding("4", "cat_trending", "Trending", show=False),
-        Binding("5", "cat_tech", "Tech", show=False),
-        Binding("6", "cat_music", "Music", show=False),
-        Binding("7", "cat_gaming", "Gaming", show=False),
+        Binding("4", "cat_playlists", "Playlists", show=False),
+        Binding("5", "cat_trending", "Trending", show=False),
+        Binding("6", "cat_tech", "Tech", show=False),
+        Binding("7", "cat_music", "Music", show=False),
+        Binding("8", "cat_gaming", "Gaming", show=False),
         Binding("tab", "cycle_cat_next", "Next Cat", show=False),
         Binding("shift+tab", "cycle_cat_prev", "Prev Cat", show=False),
         Binding("r", "refresh_feed", "Refresh", show=True),
@@ -72,7 +79,8 @@ class YouTubeTUIApp(App):
         self.current_filter = "all"
         self.previous_results: List[Dict[str, Any]] = []
         self.previous_title: str = ""
-        self.cat_order = ["home", "subs", "history", "trending", "tech", "music", "gaming"]
+        self.previous_breadcrumb: str = ""
+        self.cat_order = ["home", "subs", "history", "playlists", "trending", "tech", "music", "gaming"]
 
     def compose(self) -> ComposeResult:
         yield HeaderBar(id="header-bar")
@@ -123,9 +131,12 @@ class YouTubeTUIApp(App):
             feed_pane = self.query_one("#feed-pane", FeedPane)
             feed_pane.populate(self.previous_results, self.previous_title or "SEARCH RESULTS")
             self.previous_results = []
+            prev_title = self.previous_title or "SEARCH RESULTS"
             self.previous_title = ""
-            self.query_one("#header-bar", HeaderBar).update_breadcrumb(f"Search: {self.current_query}")
-            self.query_one("#status-bar", StatusBar).set_message("Restored previous search results")
+            prev_bc = self.previous_breadcrumb or (f"Search: {self.current_query}" if self.current_query else "Feed: My Playlists")
+            self.previous_breadcrumb = ""
+            self.query_one("#header-bar", HeaderBar).update_breadcrumb(prev_bc)
+            self.query_one("#status-bar", StatusBar).set_message(f"Restored previous view ({prev_title})")
 
     def action_focus_nav(self) -> None:
         search_box = self.query_one("#search-box", Input)
@@ -181,8 +192,22 @@ class YouTubeTUIApp(App):
         if not item or item.get("type") != "video":
             self.query_one("#status-bar", StatusBar).set_message("Select a video to play audio")
             return
-        ok, msg = play_url(item["url"], audio_only=True)
+        ok, msg = play_url(item["url"], audio_only=True, video_item=item)
         self.query_one("#status-bar", StatusBar).set_message(msg)
+
+    def action_add_to_playlist(self) -> None:
+        """Opens modal to add currently selected video to a custom or synced playlist."""
+        item = self.get_selected_item()
+        if not item or item.get("type") != "video":
+            self.query_one("#status-bar", StatusBar).set_message("Select a video to add to playlist")
+            return
+
+        def on_modal_dismiss(result: Optional[Tuple[bool, str]] = None) -> None:
+            if result:
+                ok, msg = result
+                self.query_one("#status-bar", StatusBar).set_message(msg)
+
+        self.push_screen(PlaylistModal(item), on_modal_dismiss)
 
     def action_view_description(self) -> None:
         """Opens full video description in terminal text editor (micro/nano/$EDITOR)."""
@@ -227,21 +252,32 @@ class YouTubeTUIApp(App):
         temp_file = Path(tempfile.gettempdir()) / f"youtube-tui-desc-{safe_id}.txt"
         temp_file.write_text(text_body, encoding="utf-8")
 
+        # Prioritize micro as the default editor per repository requirements
+        micro_bin = shutil.which("micro")
         editor = (
-            os.environ.get("VISUAL")
+            micro_bin
             or os.environ.get("EDITOR")
-            or shutil.which("micro")
+            or os.environ.get("VISUAL")
             or shutil.which("nano")
-            or "nano"
+            or "micro"
         )
 
-        status_bar.set_message(f"Opened description in {os.path.basename(editor)} (save/exit editor to resume)...")
+        status_bar.set_message(f"Opened description in {os.path.basename(editor)} (Ctrl+Q or exit editor to resume)...")
 
-        def _launch():
+        try:
             with self.suspend():
                 subprocess.run([editor, str(temp_file)])
+        except SuspendNotSupported:
+            pass
+        except Exception as e:
+            status_bar.set_message(f"Editor error: {e}")
+            return
+        finally:
+            try:
+                temp_file.unlink(missing_ok=True)
+            except Exception:
+                pass
 
-        await loop.run_in_executor(None, _launch)
         status_bar.set_message("Closed description viewer")
 
     def _fetch_full_description(self, item: Dict[str, Any]) -> str:
@@ -274,10 +310,20 @@ class YouTubeTUIApp(App):
 
     def action_refresh_feed(self) -> None:
         """Reloads the current search or feed."""
-        if self.current_query:
-            self.run_worker(self.perform_search(self.current_query))
+        feed_pane = self.query_one("#feed-pane", FeedPane)
+        cur = getattr(feed_pane, "active_category", "")
+        if cur == "playlists":
+            self.run_worker(self.load_playlists_feed(force_refresh=True), exclusive=True)
+        elif cur == "history":
+            self.run_worker(self.load_history_feed(), exclusive=True)
+        elif cur == "subs":
+            self.run_worker(self.load_subscriptions_feed(), exclusive=True)
+        elif cur == "home":
+            self.run_worker(self.load_home_feed(), exclusive=True)
+        elif self.current_query:
+            self.run_worker(self.perform_search(self.current_query), exclusive=True)
         else:
-            self.run_worker(self.load_feed("trending", "Trending Feed"))
+            self.run_worker(self.load_feed("trending", "Trending Feed"), exclusive=True)
 
     def action_sync_webflow(self) -> None:
         """Syncs YouTube login session from Webflow custom web engine."""
@@ -298,6 +344,10 @@ class YouTubeTUIApp(App):
     def action_cat_history(self) -> None:
         self.query_one("#feed-pane", FeedPane).set_active_category("history")
         self.run_worker(self.load_history_feed(), exclusive=True)
+
+    def action_cat_playlists(self) -> None:
+        self.query_one("#feed-pane", FeedPane).set_active_category("playlists")
+        self.run_worker(self.load_playlists_feed(), exclusive=True)
 
     def action_cat_trending(self) -> None:
         self.query_one("#feed-pane", FeedPane).set_active_category("trending")
@@ -382,7 +432,7 @@ class YouTubeTUIApp(App):
                 # Launch Smart MPV
                 status_bar = self.query_one("#status-bar", StatusBar)
                 status_bar.set_mode("PLAYING")
-                ok, msg = play_url(item.get("url", ""))
+                ok, msg = play_url(item.get("url", ""), video_item=item)
                 status_bar.set_message(msg)
                 await asyncio.sleep(2)
                 status_bar.set_mode("NORMAL")
@@ -408,6 +458,8 @@ class YouTubeTUIApp(App):
                 self.run_worker(self.load_subscriptions_feed(), exclusive=True)
             elif action_id == "feed_history":
                 self.run_worker(self.load_history_feed(), exclusive=True)
+            elif action_id == "feed_playlists":
+                self.run_worker(self.load_playlists_feed(), exclusive=True)
             elif action_id == "explore_all":
                 self.current_filter = "all"
                 if self.current_query:
@@ -472,6 +524,7 @@ class YouTubeTUIApp(App):
         # Stash current search results for Back/Esc
         self.previous_results = list(feed_pane.items)
         self.previous_title = getattr(feed_pane, "current_title", "SEARCH RESULTS")
+        self.previous_breadcrumb = getattr(self, "previous_breadcrumb", "") or (f"Search: {self.current_query}" if self.current_query else "Feed: My Playlists")
 
         status_bar.set_message(f"Loading uploads for {channel_name}...")
         header_bar.update_breadcrumb(f"Channel: {channel_name}")
@@ -491,15 +544,34 @@ class YouTubeTUIApp(App):
         # Stash current search results for Back/Esc
         self.previous_results = list(feed_pane.items)
         self.previous_title = getattr(feed_pane, "current_title", "SEARCH RESULTS")
+        self.previous_breadcrumb = getattr(self, "previous_breadcrumb", "") or (f"Search: {self.current_query}" if self.current_query else "Feed: My Playlists")
 
-        status_bar.set_message(f"Loading playlist {playlist_name}...")
+        status_bar.set_message(f"Loading playlist '{playlist_name}'...")
         header_bar.update_breadcrumb(f"Playlist: {playlist_name}")
 
         loop = asyncio.get_running_loop()
-        videos = await loop.run_in_executor(None, get_playlist_videos, playlist_id)
+        videos = await loop.run_in_executor(None, get_playlist_videos_with_local, playlist_id)
 
         feed_pane.populate(videos, title=f"PLAYLIST: {playlist_name.upper()}")
-        status_bar.set_message(f"Loaded {len(videos)} items from playlist")
+        if videos:
+            status_bar.set_message(f"Loaded {len(videos)} videos from '{playlist_name}'")
+        else:
+            status_bar.set_message(f"Playlist '{playlist_name}' is empty or unavailable")
+
+    async def load_playlists_feed(self, force_refresh: bool = False) -> None:
+        """Loads all custom and synchronized YouTube playlists into the feed."""
+        feed_pane = self.query_one("#feed-pane", FeedPane)
+        status_bar = self.query_one("#status-bar", StatusBar)
+        header_bar = self.query_one("#header-bar", HeaderBar)
+
+        status_bar.set_message("Fetching user playlists (Custom + Synced YouTube)...")
+        header_bar.update_breadcrumb("Feed: My Playlists")
+
+        loop = asyncio.get_running_loop()
+        items = await loop.run_in_executor(None, get_all_user_playlists, force_refresh)
+
+        feed_pane.populate(items, title="MY PLAYLISTS")
+        status_bar.set_message(f"Loaded {len(items)} playlists (Custom + Synced YouTube)")
 
     async def load_home_feed(self) -> None:
         """Loads personalized YouTube Home recommendations."""
@@ -548,11 +620,11 @@ class YouTubeTUIApp(App):
         items = await loop.run_in_executor(None, get_history_feed)
 
         if not items:
-            status_bar.set_message("No watch history found. Please sync your YouTube account via 'a' or 'w'.")
+            status_bar.set_message("No watch history found. Watch videos or sync your YouTube account via 'a' or 'w'.")
             return
 
         feed_pane.populate(items, title="WATCH HISTORY")
-        status_bar.set_message(f"Loaded {len(items)} videos from watch history")
+        status_bar.set_message(f"Loaded {len(items)} videos from watch history (Local + Synced)")
 
     async def load_feed(self, category: str, label: str) -> None:
         """Loads curated feed topics."""

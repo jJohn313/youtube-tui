@@ -23,6 +23,11 @@ A terminal-first, lightweight YouTube client for Linux recreating the YouTube we
   - Selecting a channel (<kbd>c</kbd> or <kbd>Enter</kbd>) loads their upload feed.
   - Selecting a playlist (<kbd>p</kbd> or <kbd>Enter</kbd>) expands all playlist video items.
 
+- **Watch History & Playlist Synchronization**:
+  - **Persistent Watch History**: Automatically logs every video watched in YouTube TUI locally (`~/.config/youtube-tui/watch_history.json`) and merges with cloud YouTube Watch History (`FEhistory`).
+  - **YouTube Playlist Synchronization**: Automatically pulls in all user playlists created on YouTube (`FEplaylist_aggregation`) under **My Playlists**.
+  - **Custom Local Playlists & Cloud Sync**: Create custom playlists anytime via <kbd>b</kbd> and add videos to existing custom or synchronized YouTube playlists. Adding to YouTube playlists dispatches cloud sync requests directly to YouTube via Innertube.
+
 - **Smart MPV Pipeline**:
   - Custom deduplicating wrapper (`~/.local/bin/mpv`) strips playlist tracking tokens and prevents redundant player windows by focusing existing Hyprland windows.
 
@@ -35,6 +40,7 @@ A terminal-first, lightweight YouTube client for Linux recreating the YouTube we
 - **yt-dlp** (`yt-dlp`)
 - **chafa** (`extra/chafa` for terminal graphics)
 - **wl-clipboard** (`extra/wl-clipboard` for URL yank)
+- **micro** (`extra/micro` default terminal text editor for description viewing)
 
 ---
 
@@ -50,12 +56,13 @@ A terminal-first, lightweight YouTube client for Linux recreating the YouTube we
 | `a` | Sync account from **Zen Browser** |
 | `c` | Browse channel of highlighted video |
 | `p` | Browse playlist of highlighted item |
+| `b` | **Add to Playlist**: Add video to a custom or synchronized YouTube playlist, or create a new playlist |
 | `m` | Play audio-only stream in MPV |
-| `t` | View full description & links in default text editor (`micro`, `nano`, `$EDITOR`) |
+| `t` | View full description & links in `micro` (default terminal text editor) |
 | `y` | Yank / Copy YouTube URL to clipboard (`wl-copy`) |
 | `Esc` | Unfocus search bar / Return to previous search results |
 | `r` | Refresh current feed or search |
-| `1` – `7` | Jump directly to category (*Home, Subscriptions, History, Trending, Tech, Music, Gaming*) |
+| `1` – `8` | Jump directly to category (*Home, Subscriptions, History, Playlists, Trending, Tech, Music, Gaming*) |
 | `Tab` / `Shift+Tab` | Cycle next / previous category |
 | `?` | Show quick help |
 | `q` | Quit |

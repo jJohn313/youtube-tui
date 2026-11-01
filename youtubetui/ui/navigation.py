@@ -13,6 +13,7 @@ NAV_ITEMS = [
     ("feed_home", "  My Home"),
     ("feed_subs", "  Subscriptions"),
     ("feed_history", "  Watch History"),
+    ("feed_playlists", "  My Playlists"),
     ("sep0", "── Explore ──"),
     ("explore_all", "  All Results"),
     ("explore_videos", "  Videos Only"),
@@ -113,8 +114,10 @@ class NavigationSidebar(Vertical):
         actions_text.append(" Browse Channel\n", style=ACC1)
         actions_text.append(" p     ", style=f"bold {PEACH}")
         actions_text.append(" Browse Playlist\n", style=ACC1)
+        actions_text.append(" b     ", style=f"bold {PEACH}")
+        actions_text.append(" Add to Playlist\n", style=ACC1)
         actions_text.append(" t     ", style=f"bold {PEACH}")
-        actions_text.append(" View Desc in Editor\n", style=ACC1)
+        actions_text.append(" View Desc (micro)\n", style=ACC1)
         actions_text.append(" y     ", style=f"bold {PEACH}")
         actions_text.append(" Copy URL (wl-copy)\n", style=ACC1)
         actions_text.append(" r     ", style=f"bold {PEACH}")

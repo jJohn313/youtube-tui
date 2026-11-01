@@ -8,8 +8,9 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Tuple
+from typing import Any, Dict, Optional, Tuple
 from youtubetui.auth import get_cookies_file
+from youtubetui.history import record_watched_video
 
 def get_mpv_path() -> str:
     """Finds the best available mpv binary, prioritizing our smart wrapper."""
@@ -27,13 +28,19 @@ def get_mpv_path() -> str:
     
     return "/usr/bin/mpv"
 
-def play_url(url: str, audio_only: bool = False) -> Tuple[bool, str]:
+def play_url(url: str, audio_only: bool = False, video_item: Optional[Dict[str, Any]] = None) -> Tuple[bool, str]:
     """
-    Launches MPV asynchronously with the target YouTube URL.
+    Launches MPV asynchronously with the target YouTube URL
+    and records the item in local watch history.
     Returns (success, message).
     """
     if not url:
         return False, "No URL specified"
+
+    if video_item:
+        record_watched_video(video_item)
+    else:
+        record_watched_video({"url": url, "type": "video"})
     
     mpv_bin = get_mpv_path()
     cmd = [mpv_bin]
@@ -43,6 +50,10 @@ def play_url(url: str, audio_only: bool = False) -> Tuple[bool, str]:
     cookies_path = get_cookies_file()
     if cookies_path:
         cmd.append(f"--ytdl-raw-options=cookies={cookies_path}")
+
+    # For live streams, ensure continuous buffer playback without stalling or skipping
+    if video_item and (video_item.get("is_live") or video_item.get("duration") == "LIVE"):
+        cmd.extend(["--cache-pause=no", "--demuxer-readahead-secs=10"])
 
     cmd.append(url)
 

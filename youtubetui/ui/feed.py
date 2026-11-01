@@ -10,8 +10,8 @@ from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Label, ListItem, ListView, Static
 from youtubetui.theme import (
-    ACC0, ACC1, BG0, BG1, BG2, BG3, FG0, FG1, FG2, PEACH,
-    BADGE_VIDEO, BADGE_CHANNEL, BADGE_PLAYLIST
+    ACC0, ACC1, BG0, BG1, BG2, BG3, FG0, FG1, FG2, PEACH, RED,
+    BADGE_VIDEO, BADGE_CHANNEL, BADGE_PLAYLIST, BADGE_LIVE
 )
 from youtubetui.thumbnail import async_render_thumbnail
 
@@ -47,7 +47,11 @@ class FeedItemWidget(ListItem):
         desc = self.item_data.get("description", "")
 
         # Type badge
-        if item_type == "channel":
+        is_live = self.item_data.get("is_live", False) or duration == "LIVE"
+        if is_live:
+            badge = BADGE_LIVE
+            badge_style = f"bold {RED}"
+        elif item_type == "channel":
             badge = BADGE_CHANNEL
             badge_style = f"bold {ACC0}"
         elif item_type == "playlist":
@@ -238,10 +242,11 @@ class FeedPane(Vertical):
         ("1", "Home", "home"),
         ("2", "Subscriptions", "subs"),
         ("3", "History", "history"),
-        ("4", "Trending", "trending"),
-        ("5", "Tech", "tech"),
-        ("6", "Music", "music"),
-        ("7", "Gaming", "gaming"),
+        ("4", "Playlists", "playlists"),
+        ("5", "Trending", "trending"),
+        ("6", "Tech", "tech"),
+        ("7", "Music", "music"),
+        ("8", "Gaming", "gaming"),
     ]
 
     def __init__(self, *args, **kwargs):

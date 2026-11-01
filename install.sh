@@ -8,6 +8,20 @@ CONFIG_DIR="${HOME}/.config/ytfzf"
 mkdir -p "${BIN_DIR}" "${CONFIG_DIR}"
 
 echo "Installing youtube-tui..."
+
+# Verify required dependencies
+MISSING=()
+for dep in python3 mpv yt-dlp chafa wl-copy micro; do
+    if ! command -v "$dep" >/dev/null 2>&1; then
+        MISSING+=("$dep")
+    fi
+done
+
+if [[ ${#MISSING[@]} -gt 0 ]]; then
+    echo "⚠ Warning: The following recommended dependencies were not found in PATH: ${MISSING[*]}"
+    echo "  Install them on Arch via: sudo pacman -S ${MISSING[*]}"
+fi
+
 ln -sfn "${REPO_DIR}/bin/youtube" "${BIN_DIR}/youtube"
 ln -sfn "${REPO_DIR}/bin/mpv" "${BIN_DIR}/mpv"
 
