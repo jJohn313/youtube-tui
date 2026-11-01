@@ -192,3 +192,173 @@ class PlaylistModal(ModalScreen[Optional[Tuple[bool, str]]]):
 
     def key_escape(self) -> None:
         self.dismiss(None)
+
+
+class FilterModal(ModalScreen[Optional[str]]):
+    """Modal dialog allowing users to pick search sort or filter criteria."""
+
+    BINDINGS = [
+        Binding("escape", "cancel_modal", "Cancel", show=False),
+        Binding("q", "cancel_modal", "Cancel", show=False),
+    ]
+
+    DEFAULT_CSS = f"""
+    FilterModal {{
+        align: center middle;
+        background: rgba(0, 0, 0, 0.7);
+    }}
+
+    #filter-container {{
+        width: 65;
+        height: 18;
+        background: {BG1};
+        border: heavy {ACC0};
+        padding: 1 2;
+        layout: vertical;
+    }}
+
+    #filter-title {{
+        color: {ACC0};
+        text-style: bold;
+        text-align: center;
+        width: 100%;
+        margin-bottom: 1;
+    }}
+
+    #filter-list {{
+        background: {BG1};
+        height: 1fr;
+    }}
+
+    #filter-list > ListItem {{
+        padding: 0 1;
+        color: {FG0};
+    }}
+
+    #filter-list > ListItem:hover {{
+        background: {BG2};
+    }}
+
+    #filter-list > ListItem.-selected {{
+        background: {ACC0};
+        color: {BG0};
+        text-style: bold;
+    }}
+    """
+
+    OPTIONS = [
+        ("all", "Relevance (Default)", "Standard YouTube ranking"),
+        ("date", "Upload Date (Latest)", "Sort strictly by newly uploaded"),
+        ("views", "View Count (Most Viewed)", "Sort by all-time popularity"),
+        ("live", "Live Streams Only", "Active broadcasts only"),
+        ("short", "Short Videos (<4 min)", "Under 4 minutes duration"),
+        ("long", "Long Videos (>20 min)", "Deep-dives over 20 minutes"),
+        ("channels", "Channels Only", "Channel creator profiles only"),
+        ("playlists", "Playlists Only", "Curated playlist collections"),
+    ]
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="filter-container"):
+            yield Label("⚡ Search Filter & Sorting", id="filter-title")
+            with ListView(id="filter-list"):
+                for key, label, desc in self.OPTIONS:
+                    line = Text()
+                    line.append(f"{label:<26} ", style=f"bold {PEACH}")
+                    line.append(f"• {desc}", style=FG1)
+                    item = ListItem(Label(line))
+                    item._filter_key = key
+                    yield item
+
+    def on_list_view_selected(self, event: ListView.Selected) -> None:
+        key = getattr(event.item, "_filter_key", "all")
+        self.dismiss(key)
+
+    def action_cancel_modal(self) -> None:
+        self.dismiss(None)
+
+
+class CommentsModal(ModalScreen[None]):
+    """Modal dialog displaying top comments and user discussions for a video."""
+
+    BINDINGS = [
+        Binding("escape", "cancel_modal", "Close", show=False),
+        Binding("q", "cancel_modal", "Close", show=False),
+    ]
+
+    DEFAULT_CSS = f"""
+    CommentsModal {{
+        align: center middle;
+        background: rgba(0, 0, 0, 0.7);
+    }}
+
+    #comments-container {{
+        width: 86;
+        height: 28;
+        background: {BG1};
+        border: heavy {ACC0};
+        padding: 1 2;
+        layout: vertical;
+    }}
+
+    #comments-title {{
+        color: {ACC0};
+        text-style: bold;
+        text-align: center;
+        width: 100%;
+    }}
+
+    #comments-sub {{
+        color: {FG1};
+        text-align: center;
+        width: 100%;
+        margin-bottom: 1;
+    }}
+
+    #comments-list {{
+        background: {BG1};
+        height: 1fr;
+    }}
+
+    .comment-item {{
+        padding: 0 1;
+        margin-bottom: 1;
+        background: {BG2};
+        border-left: solid {ACC0};
+    }}
+
+    .comment-item.-selected {{
+        background: {BG3};
+        border-left: heavy {PEACH};
+    }}
+    """
+
+    def __init__(self, title: str, comments: list[dict[str, Any]]):
+        super().__init__()
+        self.video_title = title
+        self.comments = comments
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="comments-container"):
+            yield Label("💬 Top Comments & Discussion", id="comments-title")
+            yield Label(f"Video: {self.video_title[:65]} (Esc/q to close)", id="comments-sub")
+            with ListView(id="comments-list"):
+                if not self.comments:
+                    yield ListItem(Label("No comments found or comments are disabled for this video."))
+                for c in self.comments:
+                    author = c.get("author", "Anonymous")
+                    published = c.get("published", "")
+                    likes = c.get("likes", "0")
+                    content = c.get("content", "").replace("\n", " ").strip()
+
+                    card = Text()
+                    card.append(f"{author} ", style=f"bold {PEACH}")
+                    if published:
+                        card.append(f"• {published} ", style=FG1)
+                    if likes and likes != "0":
+                        card.append(f"• ❤ {likes} ", style=f"bold {ACC0}")
+                    card.append(f"\n{content}")
+                    item = ListItem(Label(card), classes="comment-item")
+                    yield item
+
+    def action_cancel_modal(self) -> None:
+        self.dismiss(None)

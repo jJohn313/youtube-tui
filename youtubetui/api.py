@@ -10,7 +10,7 @@ import shutil
 import subprocess
 import urllib.parse
 import urllib.request
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from youtubetui.auth import get_auth_headers, get_cookies_file
 
 INNERTUBE_URL = "https://www.youtube.com/youtubei/v1/search"
@@ -19,9 +19,22 @@ BROWSE_URL = "https://www.youtube.com/youtubei/v1/browse"
 USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0"
 
 FILTER_PARAMS = {
+    "all": None,
     "videos": "EgIQAQ%3D%3D",
     "channels": "EgIQAg%3D%3D",
-    "playlists": "EgIQAw%3D%3D"
+    "playlists": "EgIQAw%3D%3D",
+    "date": "CAISAhAB",
+    "views": "CAMSAhAB",
+    "live": "EgJAAQ%3D%3D",
+    "short": "EgQQARgB",
+    "long": "EgQQARgC",
+}
+
+CHANNEL_TABS = {
+    "videos": "EgZ2aWRlb3PyBgQKAjoA",
+    "playlists": "EglwbGF5bGlzdHPyBgoKCEIGCgIQaCIA",
+    "shorts": "EgZzaG9ydHPyBgUKA5oBAA%3D%3D",
+    "featured": "EghmZWF0dXJlZPIGBAoCMgA%3D",
 }
 
 def format_duration(seconds: Any) -> str:
@@ -60,13 +73,23 @@ def _clean_thumb_url(url: str) -> str:
         return "https:" + url
     return url
 
-def extract_browse_items(data: Any) -> List[Dict[str, Any]]:
-    """Traverses an Innertube browse or search response and extracts structured items."""
+def extract_browse_items_with_continuation(data: Any) -> Tuple[List[Dict[str, Any]], Optional[str]]:
+    """Traverses an Innertube browse or search response and extracts structured items and continuation token."""
     results: List[Dict[str, Any]] = []
     seen_ids = set()
+    continuation_token: Optional[str] = None
 
     def parse_renderers(obj: Any):
+        nonlocal continuation_token
         if isinstance(obj, dict):
+            if "continuationCommand" in obj:
+                tok = obj["continuationCommand"].get("token")
+                if tok and not continuation_token:
+                    continuation_token = tok
+            elif "continuationItemRenderer" in obj:
+                tok = obj["continuationItemRenderer"].get("continuationEndpoint", {}).get("continuationCommand", {}).get("token")
+                if tok and not continuation_token:
+                    continuation_token = tok
             # 1. Video Renderer
             if "videoRenderer" in obj:
                 v = obj["videoRenderer"]
@@ -365,14 +388,19 @@ def extract_browse_items(data: Any) -> List[Dict[str, Any]]:
                 parse_renderers(i)
 
     parse_renderers(data)
+    return results, continuation_token
+
+def extract_browse_items(data: Any) -> List[Dict[str, Any]]:
+    """Traverses an Innertube browse or search response and extracts structured items."""
+    results, _ = extract_browse_items_with_continuation(data)
     return results
 
-def search_youtube(query: str, filter_type: str = "all") -> List[Dict[str, Any]]:
+def search_youtube_with_continuation(query: str, filter_type: str = "all") -> Tuple[List[Dict[str, Any]], Optional[str]]:
     """
-    Searches YouTube via Innertube API and parses Videos, Channels, and Playlists.
+    Searches YouTube via Innertube API and returns (items, continuation_token).
     """
     if not query.strip():
-        return []
+        return [], None
 
     payload = {
         "context": {
@@ -386,7 +414,7 @@ def search_youtube(query: str, filter_type: str = "all") -> List[Dict[str, Any]]
         "query": query.strip()
     }
     
-    if filter_type in FILTER_PARAMS:
+    if filter_type in FILTER_PARAMS and FILTER_PARAMS[filter_type]:
         payload["params"] = FILTER_PARAMS[filter_type]
 
     headers = {
@@ -406,16 +434,55 @@ def search_youtube(query: str, filter_type: str = "all") -> List[Dict[str, Any]]
         with urllib.request.urlopen(req, timeout=8) as resp:
             data = json.load(resp)
     except Exception:
-        return _search_fallback_scrape(query, filter_type)
+        return _search_fallback_scrape(query, filter_type), None
 
-    results = extract_browse_items(data)
+    results, token = extract_browse_items_with_continuation(data)
 
     # Filter if requested
-    if filter_type != "all":
+    if filter_type in ("videos", "channels", "playlists"):
         singular = filter_type.rstrip("s")
-        results = [r for r in results if r["type"] == singular]
+        results = [r for r in results if r.get("type") == singular]
 
-    return results
+    return results, token
+
+def search_youtube(query: str, filter_type: str = "all") -> List[Dict[str, Any]]:
+    """
+    Searches YouTube via Innertube API and parses Videos, Channels, and Playlists.
+    """
+    items, _ = search_youtube_with_continuation(query, filter_type)
+    return items
+
+def fetch_continuation(token: str, is_browse: bool = False) -> Tuple[List[Dict[str, Any]], Optional[str]]:
+    """Fetches next page of search or feed results using a continuation token."""
+    if not token:
+        return [], None
+
+    url = BROWSE_URL if is_browse else INNERTUBE_URL
+    payload = {
+        "context": {
+            "client": {
+                "clientName": "WEB",
+                "clientVersion": "2.20240101.00.00",
+                "hl": "en",
+                "gl": "US"
+            }
+        },
+        "continuation": token
+    }
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": USER_AGENT,
+        "Accept-Language": "en-US,en;q=0.9"
+    }
+    headers.update(get_auth_headers())
+
+    req = urllib.request.Request(url, headers=headers, data=json.dumps(payload).encode())
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.load(resp)
+            return extract_browse_items_with_continuation(data)
+    except Exception:
+        return [], None
 
 def _search_fallback_scrape(query: str, filter_type: str = "all") -> List[Dict[str, Any]]:
     """Scrapes YouTube search HTML and parses ytInitialData JSON as fallback."""
@@ -448,17 +515,60 @@ def _search_fallback_scrape(query: str, filter_type: str = "all") -> List[Dict[s
     # Similar extraction on ytInitialData
     return results
 
-def get_channel_videos(channel_id_or_url: str) -> List[Dict[str, Any]]:
-    """Fetches the latest videos uploaded by a YouTube channel."""
+def get_channel_videos_with_continuation(channel_id_or_url: str, tab: str = "videos") -> Tuple[List[Dict[str, Any]], Optional[str]]:
+    """
+    Fetches videos, playlists, or shorts for a YouTube channel with continuation token.
+    Prefers fast Innertube browse API with tab parameter, falling back to yt-dlp.
+    """
+    cid = channel_id_or_url.strip()
+    if "youtube.com/channel/" in cid:
+        cid = cid.split("youtube.com/channel/")[-1].split("/")[0]
+    elif cid.startswith("http"):
+        # Extracts ID if path contains /channel/UC...
+        m = re.search(r"/channel/(UC[a-zA-Z0-9_-]{22})", cid)
+        if m:
+            cid = m.group(1)
+
+    # 1. Fast Innertube Tab Browse if we have a clean channel ID (UC...)
+    if cid.startswith("UC"):
+        param = CHANNEL_TABS.get(tab, CHANNEL_TABS["videos"])
+        payload = {
+            "context": {
+                "client": {
+                    "clientName": "WEB",
+                    "clientVersion": "2.20240101.00.00",
+                    "hl": "en",
+                    "gl": "US"
+                }
+            },
+            "browseId": cid,
+            "params": param
+        }
+        headers = {
+            "Content-Type": "application/json",
+            "User-Agent": USER_AGENT,
+            "Accept-Language": "en-US,en;q=0.9"
+        }
+        headers.update(get_auth_headers())
+        req = urllib.request.Request(BROWSE_URL, headers=headers, data=json.dumps(payload).encode())
+        try:
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                data = json.load(resp)
+                items, token = extract_browse_items_with_continuation(data)
+                if items:
+                    return items, token
+        except Exception:
+            pass
+
+    # 2. yt-dlp fallback
     yt_dlp = shutil.which("yt-dlp") or "/home/john/.local/bin/yt-dlp"
     if not yt_dlp:
-        return []
+        return [], None
 
     target = channel_id_or_url
     if not target.startswith("http"):
-        target = f"https://www.youtube.com/channel/{channel_id_or_url}/videos"
-    elif not target.endswith("/videos"):
-        target = target.rstrip("/") + "/videos"
+        sub_path = "playlists" if tab == "playlists" else ("shorts" if tab == "shorts" else "videos")
+        target = f"https://www.youtube.com/channel/{channel_id_or_url}/{sub_path}"
 
     cmd = [
         yt_dlp,
@@ -502,7 +612,12 @@ def get_channel_videos(channel_id_or_url: str) -> List[Dict[str, Any]]:
     except Exception:
         pass
 
-    return results
+    return results, None
+
+def get_channel_videos(channel_id_or_url: str, tab: str = "videos") -> List[Dict[str, Any]]:
+    """Fetches videos, playlists, or shorts for a YouTube channel."""
+    items, _ = get_channel_videos_with_continuation(channel_id_or_url, tab)
+    return items
 
 def get_playlist_videos(playlist_id_or_url: str, max_items: int = 250) -> List[Dict[str, Any]]:
     """
@@ -952,3 +1067,133 @@ def get_history_feed() -> List[Dict[str, Any]]:
             combined.append(item)
 
     return combined
+
+def get_video_comments(video_id_or_url: str, max_comments: int = 35) -> List[Dict[str, Any]]:
+    """
+    Fetches top comments for a YouTube video via Innertube /next endpoint.
+    Returns list of dicts with keys: author, content, published, likes.
+    """
+    vid = (video_id_or_url or "").strip()
+    if "watch?v=" in vid:
+        m = re.search(r"v=([a-zA-Z0-9_-]{11})", vid)
+        if m:
+            vid = m.group(1)
+    elif "youtu.be/" in vid:
+        m = re.search(r"youtu\.be/([a-zA-Z0-9_-]{11})", vid)
+        if m:
+            vid = m.group(1)
+
+    if not vid:
+        return []
+
+    next_url = "https://www.youtube.com/youtubei/v1/next"
+    payload = {
+        "context": {
+            "client": {
+                "clientName": "WEB",
+                "clientVersion": "2.20240101.00.00",
+                "hl": "en",
+                "gl": "US"
+            }
+        },
+        "videoId": vid
+    }
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": USER_AGENT,
+        "Accept-Language": "en-US,en;q=0.9"
+    }
+    headers.update(get_auth_headers())
+
+    req = urllib.request.Request(next_url, headers=headers, data=json.dumps(payload).encode())
+    try:
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            data = json.load(resp)
+    except Exception:
+        return []
+
+    comments_token = None
+    def find_comments_token(obj: Any) -> bool:
+        nonlocal comments_token
+        if isinstance(obj, dict):
+            if "continuationCommand" in obj and "comment" in json.dumps(obj).lower():
+                comments_token = obj["continuationCommand"].get("token")
+                return True
+            for v in obj.values():
+                if find_comments_token(v):
+                    return True
+        elif isinstance(obj, list):
+            for it in obj:
+                if find_comments_token(it):
+                    return True
+        return False
+
+    find_comments_token(data)
+    if not comments_token:
+        return []
+
+    payload_cont = {
+        "context": {
+            "client": {
+                "clientName": "WEB",
+                "clientVersion": "2.20240101.00.00",
+                "hl": "en",
+                "gl": "US"
+            }
+        },
+        "continuation": comments_token
+    }
+    req_cont = urllib.request.Request(next_url, headers=headers, data=json.dumps(payload_cont).encode())
+    try:
+        with urllib.request.urlopen(req_cont, timeout=10) as resp_cont:
+            data_cont = json.load(resp_cont)
+    except Exception:
+        return []
+
+    comments: List[Dict[str, Any]] = []
+    # 1. Parse frameworkUpdates.entityBatchUpdate.mutations
+    mutations = data_cont.get("frameworkUpdates", {}).get("entityBatchUpdate", {}).get("mutations", [])
+    for m in mutations:
+        p = m.get("payload", {})
+        if "commentEntityPayload" in p:
+            cep = p["commentEntityPayload"]
+            author = cep.get("author", {}).get("displayName", "Anonymous")
+            content = cep.get("properties", {}).get("content", {}).get("content", "")
+            published = cep.get("properties", {}).get("publishedTime", "")
+            toolbar = cep.get("toolbar", {})
+            likes = toolbar.get("likeCountNotliked", "0")
+            if author and content:
+                comments.append({
+                    "author": author,
+                    "content": content,
+                    "published": published,
+                    "likes": likes
+                })
+                if len(comments) >= max_comments:
+                    break
+
+    # 2. Fallback to classic commentThreadRenderer
+    if not comments:
+        def extract_classic_comments(obj: Any):
+            if isinstance(obj, dict):
+                if "commentThreadRenderer" in obj:
+                    cr = obj["commentThreadRenderer"].get("comment", {}).get("commentRenderer", {})
+                    author = cr.get("authorText", {}).get("simpleText", "Anonymous")
+                    text = "".join(r.get("text", "") for r in cr.get("contentText", {}).get("runs", []))
+                    likes = cr.get("voteCount", {}).get("simpleText", "0")
+                    published = cr.get("publishedTimeText", {}).get("runs", [{}])[0].get("text", "")
+                    if author and text:
+                        comments.append({
+                            "author": author,
+                            "content": text,
+                            "published": published,
+                            "likes": likes
+                        })
+                for v in obj.values():
+                    extract_classic_comments(v)
+            elif isinstance(obj, list):
+                for it in obj:
+                    extract_classic_comments(it)
+        extract_classic_comments(data_cont)
+
+    return comments[:max_comments]

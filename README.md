@@ -18,10 +18,16 @@ A terminal-first, lightweight YouTube client for Linux recreating the YouTube we
   - **Zen Browser & Firefox**: Sync from Zen Browser (<kbd>a</kbd>) or Firefox with one keystroke without browser database locking conflicts.
   - **YouTube Premium Benefits**: Automatically attaches session credentials to MPV for ad-free playback, 4K VP9/AV1 video, and high-bitrate Opus audio.
 
-- **Multi-Type Search**:
+- **Multi-Type Search & Infinite Scroll**:
   - Queries YouTube Innertube directly for **Videos**, **Channels**, and **Playlists** without API quotas.
-  - Selecting a channel (<kbd>c</kbd> or <kbd>Enter</kbd>) loads their upload feed.
-  - Selecting a playlist (<kbd>p</kbd> or <kbd>Enter</kbd>) expands all playlist video items.
+  - **Infinite Scroll / Pagination**: Seamlessly fetches next batches on scrolling to feed end via YouTube continuation tokens.
+  - **Search Filtering & Sorting**: Press <kbd>f</kbd> to filter searches by upload date, view count, live streams, shorts, and long-form videos.
+  - **Channel Tabs**: Press <kbd>c</kbd> on a channel to browse and cycle between **Videos**, **Playlists**, and **Shorts** tabs.
+  - **Top Comments Viewer**: Press <kbd>k</kbd> to inspect the top comments and discussions directly inside a modal.
+
+- **Background Downloads & MPV Queueing**:
+  - **MPV IPC Queueing**: Press <kbd>Q</kbd> to enqueue videos to your running MPV player instance on-the-fly without interrupting playback.
+  - **Background Downloads**: Press <kbd>d</kbd> to download video or <kbd>D</kbd> to download audio (MP3) in background via `yt-dlp` with desktop notifications.
 
 - **Watch History & Playlist Synchronization**:
   - **Persistent Watch History**: Automatically logs every video watched in YouTube TUI locally (`~/.config/youtube-tui/watch_history.json`) and merges with cloud YouTube Watch History (`FEhistory`).
@@ -51,10 +57,15 @@ A terminal-first, lightweight YouTube client for Linux recreating the YouTube we
 | `h` / `l` or `Left` / `Right` | Switch focus between Main Feed and Right Navigation Pillar |
 | `j` / `k` or `Down` / `Up` | Move cursor in list (with distinct active highlight) |
 | `Enter` | Play video in MPV / Browse channel / Expand playlist / Activate nav item |
+| `Q` / `Shift+Enter` | **Play Next / Queue**: Enqueue highlighted video to active MPV instance via IPC |
+| `d` | **Download Video**: Background download video to `~/Downloads` via `yt-dlp` |
+| `D` | **Download Audio**: Background download MP3 audio to `~/Downloads` via `yt-dlp` |
+| `f` | **Filter Search**: Open modal to filter/sort results (Upload Date, Views, Live, Short, Long) |
+| `k` | **View Comments**: View top comments modal for highlighted video |
 | `/` | Focus search bar |
 | `w` | Sync account from **Webflow** web engine |
 | `a` | Sync account from **Zen Browser** |
-| `c` | Browse channel of highlighted video |
+| `c` | Browse channel / Cycle channel tabs (*Videos* -> *Playlists* -> *Shorts*) |
 | `p` | Browse playlist of highlighted item |
 | `b` | **Add to Playlist**: Add video to a custom or synchronized YouTube playlist, or create a new playlist |
 | `m` | Play audio-only stream in MPV |

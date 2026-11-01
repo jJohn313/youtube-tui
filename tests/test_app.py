@@ -133,9 +133,54 @@ async def test_playlists_and_history():
 
         await pilot.exit(None)
 
+async def test_new_features():
+    from youtubetui.api import search_youtube_with_continuation, get_video_comments
+    from youtubetui.player import enqueue_url, download_url
+
+    # 1. Test search with continuation
+    items, token = search_youtube_with_continuation("quantum computing", filter_type="videos")
+    assert len(items) > 0
+    assert items[0]["type"] == "video"
+
+    # 2. Test modals and channel tab cycling in App
+    app = YouTubeTUIApp(initial_query="veritasium")
+    async with app.run_test() as pilot:
+        feed_pane = app.query_one("#feed-pane", FeedPane)
+        for _ in range(40):
+            if len(feed_pane.items) > 0:
+                break
+            await pilot.pause(0.2)
+
+        # Test FilterModal (f key)
+        app.action_open_filter_modal()
+        await pilot.pause(0.2)
+        assert len(app.screen_stack) > 1
+        await pilot.press("escape")
+        await pilot.pause(0.2)
+        assert len(app.screen_stack) == 1
+
+        # Test CommentsModal (k key)
+        app.action_view_comments()
+        await pilot.pause(0.2)
+        assert len(app.screen_stack) > 1
+        await pilot.press("escape")
+        await pilot.pause(0.2)
+        assert len(app.screen_stack) == 1
+
+        # Test Channel Tab Cycling (c key)
+        await app.load_channel("UCHnyfMqiRRG1u-2MsSQLbXA", "Veritasium", "videos")
+        assert "CHANNEL: VERITASIUM" in getattr(feed_pane, "current_title", "")
+        # Cycle to playlists
+        app.action_open_channel()
+        await pilot.pause(1.0)
+        assert "PLAYLISTS" in getattr(feed_pane, "current_title", "")
+
+        await pilot.exit(None)
+
 if __name__ == "__main__":
     asyncio.run(test_app_startup_and_curated_feed())
     asyncio.run(test_app_search_and_navigation())
     asyncio.run(test_auth_and_subscriptions())
     asyncio.run(test_playlists_and_history())
+    asyncio.run(test_new_features())
     print("✔ All headless integration tests passed!")

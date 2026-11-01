@@ -19,11 +19,12 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Input, Label, ListView
 from youtubetui.api import (
-    get_channel_videos, get_curated_feed, get_playlist_videos, search_youtube,
-    get_home_feed, get_subscriptions_feed, get_history_feed
+    get_channel_videos, get_channel_videos_with_continuation, get_curated_feed, get_playlist_videos, search_youtube,
+    search_youtube_with_continuation, fetch_continuation, get_home_feed,
+    get_subscriptions_feed, get_history_feed, get_video_comments
 )
 from youtubetui.auth import clear_session, get_cookies_file, is_authenticated, is_premium, sync_from_browser
-from youtubetui.player import copy_to_clipboard, play_url
+from youtubetui.player import copy_to_clipboard, play_url, enqueue_url, download_url
 from youtubetui.playlists import (
     get_all_user_playlists,
     get_playlist_videos_with_local
@@ -31,7 +32,7 @@ from youtubetui.playlists import (
 from youtubetui.theme import TCSS_THEME
 from youtubetui.ui.feed import FeedItemWidget, FeedPane
 from youtubetui.ui.header import HeaderBar
-from youtubetui.ui.modal import PlaylistModal
+from youtubetui.ui.modal import PlaylistModal, FilterModal, CommentsModal
 from youtubetui.ui.navigation import NavItem, NavigationSidebar
 from youtubetui.ui.statusbar import StatusBar
 
@@ -50,6 +51,11 @@ class YouTubeTUIApp(App):
         Binding("l", "focus_nav", "Nav", show=False),
         Binding("left", "focus_feed", "Feed", show=False),
         Binding("right", "focus_nav", "Nav", show=False),
+        Binding("Q", "enqueue_video", "Queue Next", show=True),
+        Binding("d", "download_video", "Download Video", show=True),
+        Binding("D", "download_audio", "Download Audio", show=True),
+        Binding("f", "open_filter_modal", "Filter Search", show=True),
+        Binding("k", "view_comments", "Comments", show=True),
         Binding("c", "open_channel", "Channel", show=True),
         Binding("p", "open_playlist", "Playlist", show=True),
         Binding("b", "add_to_playlist", "Add to Playlist", show=True),
@@ -77,6 +83,12 @@ class YouTubeTUIApp(App):
         self.initial_query = initial_query
         self.current_query = initial_query
         self.current_filter = "all"
+        self.current_continuation_token: Optional[str] = None
+        self.current_is_browse: bool = False
+        self.is_loading_more: bool = False
+        self.current_channel_id: Optional[str] = None
+        self.current_channel_name: Optional[str] = None
+        self.current_channel_tab: str = "videos"
         self.previous_results: List[Dict[str, Any]] = []
         self.previous_title: str = ""
         self.previous_breadcrumb: str = ""
@@ -166,13 +178,84 @@ class YouTubeTUIApp(App):
         return None
 
     def action_open_channel(self) -> None:
-        """Navigates to the channel of the currently highlighted item."""
+        """Navigates to channel or cycles channel tabs (videos/playlists/shorts)."""
+        feed_pane = self.query_one("#feed-pane", FeedPane)
+        current_title = getattr(feed_pane, "current_title", "")
+        if "CHANNEL:" in current_title and getattr(self, "current_channel_id", None):
+            tabs = ["videos", "playlists", "shorts"]
+            cur_idx = tabs.index(self.current_channel_tab) if self.current_channel_tab in tabs else 0
+            next_tab = tabs[(cur_idx + 1) % len(tabs)]
+            self.run_worker(self.load_channel(self.current_channel_id, self.current_channel_name or "Channel", next_tab))
+            return
+
         item = self.get_selected_item()
         if not item:
             return
         ch_id = item.get("channel_id") or item.get("channel")
         if ch_id:
-            self.run_worker(self.load_channel(ch_id, item.get("channel", "Channel")))
+            self.run_worker(self.load_channel(ch_id, item.get("channel", "Channel"), "videos"))
+
+    def action_enqueue_video(self) -> None:
+        """Enqueues highlighted video to MPV's active playlist via IPC."""
+        item = self.get_selected_item()
+        if not item:
+            self.query_one("#status-bar", StatusBar).set_message("No item highlighted to queue")
+            return
+        url = item.get("url", "")
+        title = item.get("title", "")
+        if not url:
+            return
+        status_bar = self.query_one("#status-bar", StatusBar)
+        status_bar.set_mode("PLAYING")
+        ok, msg = enqueue_url(url, title=title, video_item=item)
+        status_bar.set_message(msg)
+
+    def action_download_video(self) -> None:
+        """Downloads highlighted video to ~/Downloads/ in background."""
+        item = self.get_selected_item()
+        if not item or not item.get("url"):
+            self.query_one("#status-bar", StatusBar).set_message("No video highlighted to download")
+            return
+        ok, msg = download_url(item["url"], audio_only=False, video_item=item)
+        self.query_one("#status-bar", StatusBar).set_message(msg)
+
+    def action_download_audio(self) -> None:
+        """Rips and downloads audio (MP3) to ~/Music/ in background."""
+        item = self.get_selected_item()
+        if not item or not item.get("url"):
+            self.query_one("#status-bar", StatusBar).set_message("No video highlighted to rip audio")
+            return
+        ok, msg = download_url(item["url"], audio_only=True, video_item=item)
+        self.query_one("#status-bar", StatusBar).set_message(msg)
+
+    def action_open_filter_modal(self) -> None:
+        """Opens search filter & sorting dialog."""
+        def on_filter_selected(choice: Optional[str]) -> None:
+            if choice:
+                self.current_filter = choice
+                status_bar = self.query_one("#status-bar", StatusBar)
+                status_bar.set_message(f"Search filter set to '{choice}'")
+                if self.current_query:
+                    self.run_worker(self.perform_search(self.current_query))
+
+        self.push_screen(FilterModal(), on_filter_selected)
+
+    def action_view_comments(self) -> None:
+        """Opens Top Comments modal for the currently highlighted video."""
+        item = self.get_selected_item()
+        if not item or not item.get("url"):
+            self.query_one("#status-bar", StatusBar).set_message("No video highlighted to view comments")
+            return
+
+        self.run_worker(self._fetch_and_show_comments(item), exclusive=True)
+
+    async def _fetch_and_show_comments(self, item: Dict[str, Any]) -> None:
+        status_bar = self.query_one("#status-bar", StatusBar)
+        status_bar.set_message("Fetching top comments & discussion...")
+        loop = asyncio.get_running_loop()
+        comments = await loop.run_in_executor(None, get_video_comments, item.get("id") or item.get("url"))
+        status_bar.set_message(f"Loaded {len(comments)} comments")
+        self.push_screen(CommentsModal(item.get("title", "Video Comments"), comments))
 
     def action_open_playlist(self) -> None:
         """Expands the playlist of the currently highlighted item."""
@@ -395,7 +478,7 @@ class YouTubeTUIApp(App):
             await self.load_home_feed()
 
     def action_show_help(self) -> None:
-        msg = "[1-7] Tabs  [Tab] Cycle  [/] Search  [Enter] Play  [w] Sync Webflow  [a] Sync Zen  [c] Channel  [p] Playlist  [y] Yank  [q] Quit"
+        msg = "[1-8] Feeds  [/] Search  [f] Filter  [Enter] Play  [Q] Queue  [d/D] Download  [c] Channel Tabs  [p] Playlist  [b] Save  [t] Desc  [k] Comments  [y] Yank  [q] Quit"
         self.query_one("#status-bar", StatusBar).set_message(msg)
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
@@ -421,6 +504,42 @@ class YouTubeTUIApp(App):
             if isinstance(event.item, FeedItemWidget):
                 item = event.item.item_data
                 status_bar.set_message(item.get("title", ""))
+
+            # Infinite Scroll: Auto-fetch next page when nearing bottom of feed
+            if self.current_continuation_token and not self.is_loading_more:
+                if total > 0 and idx >= total - 3:
+                    self.run_worker(self.load_more_items())
+
+    async def load_more_items(self) -> None:
+        """Fetches and appends next batch of items using the active continuation token."""
+        if not self.current_continuation_token or self.is_loading_more:
+            return
+
+        self.is_loading_more = True
+        token = self.current_continuation_token
+        is_browse = self.current_is_browse
+        status_bar = self.query_one("#status-bar", StatusBar)
+        status_bar.set_message("Loading more items...")
+
+        loop = asyncio.get_running_loop()
+        new_items, next_token = await loop.run_in_executor(
+            None, fetch_continuation, token, is_browse
+        )
+
+        self.current_continuation_token = next_token
+        self.is_loading_more = False
+
+        if not new_items:
+            status_bar.set_message("No more items")
+            return
+
+        feed_pane = self.query_one("#feed-pane", FeedPane)
+        feed_list = self.query_one("#feed-list-view", ListView)
+        feed_pane.items.extend(new_items)
+        for it in new_items:
+            feed_list.append(FeedItemWidget(it))
+
+        status_bar.set_message(f"Loaded {len(new_items)} more items (Total: {len(feed_pane.items)})")
 
     async def on_list_view_selected(self, event: ListView.Selected) -> None:
         """Fires when Enter is pressed on an item in feed or navigation sidebar."""
@@ -506,34 +625,46 @@ class YouTubeTUIApp(App):
         header_bar = self.query_one("#header-bar", HeaderBar)
         feed_pane = self.query_one("#feed-pane", FeedPane)
 
+        self.current_query = query
         status_bar.set_message(f"Searching for '{query}'...")
         header_bar.update_breadcrumb(f"Search: {query} [{self.current_filter.upper()}]")
 
         loop = asyncio.get_running_loop()
-        results = await loop.run_in_executor(None, search_youtube, query, self.current_filter)
+        results, token = await loop.run_in_executor(None, search_youtube_with_continuation, query, self.current_filter)
 
+        self.current_continuation_token = token
+        self.current_is_browse = False
         feed_pane.populate(results, title=f"SEARCH: {query.upper()}")
         status_bar.set_message(f"Loaded {len(results)} items for '{query}'")
 
-    async def load_channel(self, channel_id: str, channel_name: str) -> None:
-        """Loads a channel's uploaded videos into the center feed."""
+    async def load_channel(self, channel_id: str, channel_name: str, tab: str = "videos") -> None:
+        """Loads a channel's uploaded videos, playlists, or shorts into the center feed."""
         feed_pane = self.query_one("#feed-pane", FeedPane)
         status_bar = self.query_one("#status-bar", StatusBar)
         header_bar = self.query_one("#header-bar", HeaderBar)
 
-        # Stash current search results for Back/Esc
-        self.previous_results = list(feed_pane.items)
-        self.previous_title = getattr(feed_pane, "current_title", "SEARCH RESULTS")
-        self.previous_breadcrumb = getattr(self, "previous_breadcrumb", "") or (f"Search: {self.current_query}" if self.current_query else "Feed: My Playlists")
+        self.current_channel_id = channel_id
+        self.current_channel_name = channel_name
+        self.current_channel_tab = tab
 
-        status_bar.set_message(f"Loading uploads for {channel_name}...")
-        header_bar.update_breadcrumb(f"Channel: {channel_name}")
+        # Stash current search results for Back/Esc if not already viewing this channel
+        if "CHANNEL:" not in getattr(feed_pane, "current_title", ""):
+            self.previous_results = list(feed_pane.items)
+            self.previous_title = getattr(feed_pane, "current_title", "SEARCH RESULTS")
+            self.previous_breadcrumb = getattr(self, "previous_breadcrumb", "") or (f"Search: {self.current_query}" if self.current_query else "Feed: My Playlists")
+
+        tab_display = tab.capitalize()
+        status_bar.set_message(f"Loading {tab_display} for {channel_name}...")
+        header_bar.update_breadcrumb(f"Channel: {channel_name} [{tab_display}] (Press 'c' to cycle tabs)")
 
         loop = asyncio.get_running_loop()
-        videos = await loop.run_in_executor(None, get_channel_videos, channel_id)
+        videos, token = await loop.run_in_executor(None, get_channel_videos_with_continuation, channel_id, tab)
 
-        feed_pane.populate(videos, title=f"CHANNEL: {channel_name.upper()}")
-        status_bar.set_message(f"Loaded {len(videos)} videos from {channel_name}")
+        self.current_continuation_token = token
+        self.current_is_browse = True
+        tab_suffix = f" [{tab.upper()}]" if tab != "videos" else ""
+        feed_pane.populate(videos, title=f"CHANNEL: {channel_name.upper()}{tab_suffix}")
+        status_bar.set_message(f"Loaded {len(videos)} {tab} from {channel_name} (Press 'c' to cycle tabs)")
 
     async def load_playlist(self, playlist_id: str, playlist_name: str) -> None:
         """Loads a playlist's video items into the center feed."""
