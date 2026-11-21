@@ -14,20 +14,35 @@ Anchored directly to the Lain palette from ~/.config/yazi/theme.toml:
   red  = #930006 (cut/warning)
 """
 
-# Palette Constants
+import json
+import os
+
+
+def _load_matugen_tokens():
+    path = os.path.expanduser("~/.cache/theme_tokens.json")
+    try:
+        with open(path, "r") as f:
+            return json.load(f).get("colors", {})
+    except Exception:
+        return {}
+
+
+_C = _load_matugen_tokens()
+
+# Palette Constants (Matugen unified tokens with Lain fallback)
 BG0 = "#000000"
-BG1 = "#1A1A1A"
-BG2 = "#2A2A2A"
-BG3 = "#3A3A3A"
+BG1 = _C.get("surface_container", "#1A1A1A")
+BG2 = _C.get("surface_container_high", "#2A2A2A")
+BG3 = _C.get("outline_variant", "#3A3A3A")
 
-FG0 = "#CE7688"
-FG1 = "#A05969"
-FG2 = "#804654"
+FG0 = _C.get("on_surface", "#CE7688")
+FG1 = _C.get("on_surface_variant", "#A05969")
+FG2 = _C.get("outline", "#804654")
 
-ACC0 = "#C1B48E"
-ACC1 = "#A49978"
-PEACH = "#FFDCB9"
-RED = "#930006"
+ACC0 = _C.get("primary", "#C1B48E")
+ACC1 = _C.get("secondary", "#A49978")
+PEACH = _C.get("tertiary", "#FFDCB9")
+RED = _C.get("error", "#930006")
 
 # Powerline & Status ramp glyphs matching Yazi
 RAMP_OPEN = "▓"

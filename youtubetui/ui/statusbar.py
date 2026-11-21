@@ -7,7 +7,7 @@ from rich.text import Text
 from textual.app import ComposeResult
 from textual.containers import Horizontal
 from textual.widgets import Label, Static
-from youtubetui.theme import ACC0, ACC1, BG0, BG1, BG2, BG3, FG0, FG1
+from youtubetui.theme import ACC0, ACC1, BG0, BG1, BG2, BG3, FG0, FG1, PEACH
 
 class StatusBar(Horizontal):
     """Bottom status bar with Yazi styling."""
@@ -59,7 +59,7 @@ class StatusBar(Horizontal):
             mode_box.styles.background = ACC0
             mode_box.styles.color = BG0
         elif mode.upper() == "PLAYING":
-            mode_box.styles.background = "#FFDCB9"
+            mode_box.styles.background = PEACH
             mode_box.styles.color = BG0
         else:
             mode_box.styles.background = FG0
